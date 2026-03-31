@@ -1,0 +1,355 @@
+openapi: 3.0.3
+info:
+  title: HAS SmartLock Service API
+  version: 0.1.0
+  description: |
+    当前仓库已实现接口的 OpenAPI 定义。
+    用于导入 Apifox、Postman 等 API 测试平台。
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: System
+  - name: User
+paths:
+  /healthz:
+    get:
+      tags:
+        - System
+      summary: 健康检查
+      operationId: healthCheck
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  status: ok
+  /time:
+    get:
+      tags:
+        - System
+      summary: 获取服务器时间戳
+      operationId: getServerTime
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  timestamp: 1711857600
+  /v1/user/registerSend:
+    post:
+      tags:
+        - User
+      summary: 发送注册验证码
+      operationId: userRegisterSend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendCodeRequest'
+            example:
+              username: demo@example.com
+              country: '86'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data: null
+  /v1/user/loginSend:
+    post:
+      tags:
+        - User
+      summary: 发送登录验证码
+      operationId: userLoginSend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendCodeRequest'
+            example:
+              username: demo@example.com
+              country: '86'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data: null
+  /v1/user/register:
+    post:
+      tags:
+        - User
+      summary: 用户注册
+      operationId: userRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              username: demo@example.com
+              country: '86'
+              code: '123456'
+              password: md5-password
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  uid: u_123456789
+                  access_token: access-token
+                  refresh_token: refresh-token
+                  is_debug: 0
+                  expiration: 1711864800
+  /v1/user/login:
+    post:
+      tags:
+        - User
+      summary: 用户登录
+      operationId: userLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              passwordLogin:
+                summary: 密码登录
+                value:
+                  username: demo@example.com
+                  type: password
+                  password: md5-password
+                  phone_brand: iPhone
+              codeLogin:
+                summary: 验证码登录
+                value:
+                  username: demo@example.com
+                  type: code
+                  code: '123456'
+                  phone_brand: iPhone
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenEnvelope'
+  /v1/user/info:
+    get:
+      tags:
+        - User
+      summary: 获取用户信息
+      operationId: userInfo
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  username: demo@example.com
+                  nickname: demo@example.com
+                  avatar: ''
+                  is_debug: 0
+                  register_time: 1711857600
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    EnvelopeBase:
+      type: object
+      required:
+        - code
+        - msg
+      properties:
+        code:
+          type: integer
+          example: 1000
+        msg:
+          type: string
+          example: ok
+    HealthData:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
+    HealthEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/HealthData'
+    TimeData:
+      type: object
+      required:
+        - timestamp
+      properties:
+        timestamp:
+          type: integer
+          format: int64
+          example: 1711857600
+    TimeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/TimeData'
+    NullEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              nullable: true
+    SendCodeRequest:
+      type: object
+      required:
+        - username
+        - country
+      properties:
+        username:
+          type: string
+          example: demo@example.com
+        country:
+          type: string
+          example: '86'
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - country
+        - code
+      properties:
+        username:
+          type: string
+        country:
+          type: string
+        code:
+          type: string
+        password:
+          type: string
+          nullable: true
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - type
+        - phone_brand
+      properties:
+        username:
+          type: string
+        type:
+          type: string
+          enum:
+            - password
+            - code
+        password:
+          type: string
+          nullable: true
+        code:
+          type: string
+          nullable: true
+        phone_brand:
+          type: string
+      description: 当前实现支持密码登录和验证码登录，字段约束以后续主合同文档为准。
+    TokenData:
+      type: object
+      required:
+        - uid
+        - access_token
+        - refresh_token
+        - is_debug
+        - expiration
+      properties:
+        uid:
+          type: string
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        is_debug:
+          type: integer
+        expiration:
+          type: integer
+          format: int64
+    TokenEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/TokenData'
+    UserInfoData:
+      type: object
+      required:
+        - username
+        - nickname
+        - avatar
+        - is_debug
+        - register_time
+      properties:
+        username:
+          type: string
+        nickname:
+          type: string
+        avatar:
+          type: string
+        is_debug:
+          type: integer
+        register_time:
+          type: integer
+          format: int64
+    UserInfoEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserInfoData'

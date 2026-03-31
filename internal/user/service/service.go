@@ -1,0 +1,287 @@
+package service
+
+import (
+	"errors"
+	"fmt"
+	"time"
+
+	"has-smartlock-service/internal/pkg/auth"
+	"has-smartlock-service/internal/pkg/config"
+	"has-smartlock-service/internal/user/model"
+	"has-smartlock-service/internal/user/repository"
+)
+
+var (
+	ErrInvalidInput       = errors.New("invalid input")
+	ErrUserExists         = errors.New("user already exists")
+	ErrUserNotFound       = errors.New("user not found")
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrInvalidCode        = errors.New("invalid verification code")
+	ErrExpiredCode        = errors.New("verification code expired")
+)
+
+type Clock func() time.Time
+type CodeGenerator func() string
+type UIDGenerator func() string
+
+type Service struct {
+	repo          *repository.Repository
+	tokenManager  *auth.TokenManager
+	clock         Clock
+	codeGenerator CodeGenerator
+	uidGenerator  UIDGenerator
+	cfg           config.Config
+}
+
+type TokenPair struct {
+	UID          string `json:"uid"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	IsDebug      int    `json:"is_debug"`
+	Expiration   int64  `json:"expiration"`
+}
+
+type RegisterSendInput struct {
+	Username string
+	Country  string
+	Type     string
+}
+
+type RegisterInput struct {
+	Username string
+	Country  string
+	Code     string
+	Password string
+}
+
+type LoginInput struct {
+	Username   string
+	Type       string
+	Password   string
+	Code       string
+	PhoneBrand string
+}
+
+type UserInfo struct {
+	Username     string `json:"username"`
+	Nickname     string `json:"nickname"`
+	Avatar       string `json:"avatar"`
+	IsDebug      int    `json:"is_debug"`
+	RegisterTime int64  `json:"register_time"`
+}
+
+func New(repo *repository.Repository, tokenManager *auth.TokenManager, cfg config.Config) *Service {
+	return &Service{
+		repo:         repo,
+		tokenManager: tokenManager,
+		cfg:          cfg,
+		clock:        time.Now,
+		codeGenerator: func() string {
+			return "123456"
+		},
+		uidGenerator: func() string {
+			return fmt.Sprintf("u_%d", time.Now().UnixNano())
+		},
+	}
+}
+
+func (s *Service) WithClock(clock Clock) *Service {
+	s.clock = clock
+	return s
+}
+
+func (s *Service) WithCodeGenerator(generator CodeGenerator) *Service {
+	s.codeGenerator = generator
+	return s
+}
+
+func (s *Service) WithUIDGenerator(generator UIDGenerator) *Service {
+	s.uidGenerator = generator
+	return s
+}
+
+func (s *Service) SendVerificationCode(input RegisterSendInput) error {
+	if input.Username == "" || input.Country == "" || input.Type == "" {
+		return ErrInvalidInput
+	}
+
+	record := &model.VerificationCode{
+		Username:  input.Username,
+		Country:   input.Country,
+		Type:      input.Type,
+		Code:      s.codeGenerator(),
+		ExpiresAt: s.clock().Add(time.Duration(s.cfg.VerificationTTL) * time.Second),
+		SendCount: 1,
+	}
+
+	return s.repo.CreateVerificationCode(record)
+}
+
+func (s *Service) Register(input RegisterInput) (*TokenPair, error) {
+	if input.Username == "" || input.Country == "" || input.Code == "" {
+		return nil, ErrInvalidInput
+	}
+
+	if _, err := s.repo.FindUserByUsername(input.Username); err == nil {
+		return nil, ErrUserExists
+	} else if !repository.IsNotFound(err) {
+		return nil, err
+	}
+
+	record, err := s.repo.FindLatestVerificationCode(input.Username, "register")
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return nil, ErrInvalidCode
+		}
+		return nil, err
+	}
+
+	now := s.clock()
+	if record.UsedAt != nil || record.Code != input.Code {
+		return nil, ErrInvalidCode
+	}
+	if now.After(record.ExpiresAt) {
+		return nil, ErrExpiredCode
+	}
+
+	var result *TokenPair
+	err = s.repo.WithTx(func(txRepo *repository.Repository) error {
+		if err := txRepo.ConsumeVerificationCode(record.ID, now); err != nil {
+			return err
+		}
+
+		user := &model.User{
+			UID:          s.uidGenerator(),
+			Username:     input.Username,
+			Country:      input.Country,
+			PasswordHash: input.Password,
+			Nickname:     input.Username,
+			IsDebug:      0,
+			RegisterTime: now.Unix(),
+		}
+		if err := txRepo.CreateUser(user); err != nil {
+			return err
+		}
+
+		tokens, err := s.issueTokens(txRepo, user, now)
+		if err != nil {
+			return err
+		}
+		result = tokens
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (s *Service) Login(input LoginInput) (*TokenPair, error) {
+	if input.Username == "" || input.Type == "" || input.PhoneBrand == "" {
+		return nil, ErrInvalidInput
+	}
+
+	user, err := s.repo.FindUserByUsername(input.Username)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+
+	now := s.clock()
+	switch input.Type {
+	case "password":
+		if input.Password == "" || user.PasswordHash == "" || user.PasswordHash != input.Password {
+			return nil, ErrInvalidCredentials
+		}
+	case "code":
+		record, err := s.repo.FindLatestVerificationCode(input.Username, "login")
+		if err != nil {
+			if repository.IsNotFound(err) {
+				return nil, ErrInvalidCode
+			}
+			return nil, err
+		}
+		if record.UsedAt != nil || record.Code != input.Code {
+			return nil, ErrInvalidCode
+		}
+		if now.After(record.ExpiresAt) {
+			return nil, ErrExpiredCode
+		}
+		if err := s.repo.ConsumeVerificationCode(record.ID, now); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, ErrInvalidInput
+	}
+
+	var result *TokenPair
+	err = s.repo.WithTx(func(txRepo *repository.Repository) error {
+		tokens, err := s.issueTokens(txRepo, user, now)
+		if err != nil {
+			return err
+		}
+		result = tokens
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (s *Service) GetUserInfo(uid string) (*UserInfo, error) {
+	if uid == "" {
+		return nil, ErrInvalidInput
+	}
+
+	user, err := s.repo.FindUserByUID(uid)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+
+	return &UserInfo{
+		Username:     user.Username,
+		Nickname:     user.Nickname,
+		Avatar:       user.Avatar,
+		IsDebug:      user.IsDebug,
+		RegisterTime: user.RegisterTime,
+	}, nil
+}
+
+func (s *Service) issueTokens(repo *repository.Repository, user *model.User, now time.Time) (*TokenPair, error) {
+	accessToken, accessExpiresAt, err := s.tokenManager.GenerateAccessToken(user.UID, now)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken, err := auth.GenerateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := repo.RevokeActiveRefreshTokens(user.ID, now); err != nil {
+		return nil, err
+	}
+	if err := repo.CreateRefreshToken(&model.RefreshToken{
+		UserID:    user.ID,
+		Token:     refreshToken,
+		ExpiresAt: s.tokenManager.RefreshTokenExpiresAt(now),
+	}); err != nil {
+		return nil, err
+	}
+
+	return &TokenPair{
+		UID:          user.UID,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		IsDebug:      user.IsDebug,
+		Expiration:   accessExpiresAt.Unix(),
+	}, nil
+}

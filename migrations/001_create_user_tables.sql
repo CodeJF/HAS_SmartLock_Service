@@ -1,0 +1,59 @@
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    uid VARCHAR(64) NOT NULL UNIQUE,
+    username VARCHAR(191) NOT NULL UNIQUE,
+    country VARCHAR(16) NOT NULL,
+    password_hash VARCHAR(255) NULL,
+    nickname VARCHAR(191) NULL,
+    avatar VARCHAR(1024) NULL,
+    is_debug INT NOT NULL DEFAULT 0,
+    register_time BIGINT NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    deleted_at DATETIME(3) NULL,
+    INDEX idx_users_deleted_at (deleted_at)
+);
+
+CREATE TABLE IF NOT EXISTS verification_codes (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(191) NOT NULL,
+    country VARCHAR(16) NOT NULL,
+    type VARCHAR(32) NOT NULL,
+    code VARCHAR(32) NOT NULL,
+    expires_at DATETIME(3) NOT NULL,
+    used_at DATETIME(3) NULL,
+    send_count INT NOT NULL DEFAULT 1,
+    attempt_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    INDEX idx_verification_lookup (username, type)
+);
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    token VARCHAR(128) NOT NULL UNIQUE,
+    client_id VARCHAR(191) NULL,
+    expires_at DATETIME(3) NOT NULL,
+    revoked_at DATETIME(3) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    INDEX idx_refresh_tokens_user_id (user_id),
+    CONSTRAINT fk_refresh_tokens_user_id FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS user_clients (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    push_type INT NOT NULL,
+    push_token VARCHAR(512) NOT NULL,
+    brand VARCHAR(191) NULL,
+    version VARCHAR(64) NULL,
+    language VARCHAR(32) NULL,
+    zone VARCHAR(64) NULL,
+    last_seen_at DATETIME(3) NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    INDEX idx_user_clients_user_id (user_id),
+    CONSTRAINT fk_user_clients_user_id FOREIGN KEY (user_id) REFERENCES users(id)
+);

@@ -190,6 +190,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+  /v1/user/resetSend:
+    post:
+      tags:
+        - User
+      summary: 发送忘记密码验证码
+      operationId: userResetSend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendCodeRequest'
+            example:
+              username: demo@example.com
+              country: '86'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/user/reset:
+    post:
+      tags:
+        - User
+      summary: 忘记密码（重置密码）
+      operationId: userReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetRequest'
+            example:
+              username: demo@example.com
+              code: '123456'
+              password: new-md5-password
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
   /v1/user/refresh:
     post:
       tags:
@@ -243,6 +288,80 @@ paths:
       operationId: userLogout
       security:
         - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/user/updatePwd:
+    post:
+      tags:
+        - User
+      summary: 修改密码
+      operationId: userUpdatePwd
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePasswordRequest'
+            example:
+              new_password: new-md5-password
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/user/updateInfo:
+    post:
+      tags:
+        - User
+      summary: 修改昵称
+      operationId: userUpdateInfo
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInfoRequest'
+            example:
+              nickname: New Nickname
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/user/putClient:
+    post:
+      tags:
+        - User
+      summary: 上报登录设备信息
+      operationId: userPutClient
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutClientRequest'
+            example:
+              push_type: 1
+              push_token: device-token
+              brand: iPhone
+              version: iOS 18
+              language: zh_CN
+              zone: Asia/Shanghai
       responses:
         '200':
           description: 成功
@@ -381,6 +500,51 @@ components:
         - refresh_token
       properties:
         refresh_token:
+          type: string
+    ResetRequest:
+      type: object
+      required:
+        - username
+        - code
+        - password
+      properties:
+        username:
+          type: string
+        code:
+          type: string
+        password:
+          type: string
+    UpdatePasswordRequest:
+      type: object
+      required:
+        - new_password
+      properties:
+        new_password:
+          type: string
+    UpdateInfoRequest:
+      type: object
+      required:
+        - nickname
+      properties:
+        nickname:
+          type: string
+    PutClientRequest:
+      type: object
+      required:
+        - push_type
+        - push_token
+      properties:
+        push_type:
+          type: integer
+        push_token:
+          type: string
+        brand:
+          type: string
+        version:
+          type: string
+        language:
+          type: string
+        zone:
           type: string
     TokenData:
       type: object

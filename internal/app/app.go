@@ -18,6 +18,7 @@ import (
 type App struct {
 	config config.Config
 	router *gin.Engine
+	db     *gorm.DB
 }
 
 func New() (*App, error) {
@@ -41,6 +42,7 @@ func NewWithDependencies(cfg config.Config, database *gorm.DB) (*App, error) {
 	return &App{
 		config: cfg,
 		router: router,
+		db:     database,
 	}, nil
 }
 
@@ -50,6 +52,10 @@ func (a *App) Run() error {
 
 func (a *App) Router() *gin.Engine {
 	return a.router
+}
+
+func (a *App) DB() *gorm.DB {
+	return a.db
 }
 
 func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) {

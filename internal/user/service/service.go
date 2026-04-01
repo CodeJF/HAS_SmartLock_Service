@@ -81,6 +81,32 @@ type RefreshInput struct {
 	RefreshToken string
 }
 
+type ResetInput struct {
+	Username string
+	Code     string
+	Password string
+}
+
+type UpdatePasswordInput struct {
+	UID         string
+	NewPassword string
+}
+
+type UpdateInfoInput struct {
+	UID      string
+	Nickname string
+}
+
+type PutClientInput struct {
+	UID       string
+	PushType  int
+	PushToken string
+	Brand     string
+	Version   string
+	Language  string
+	Zone      string
+}
+
 func New(repo *repository.Repository, tokenManager *auth.TokenManager, cfg config.Config) *Service {
 	return &Service{
 		repo:         repo,
@@ -255,6 +281,37 @@ func (s *Service) ValidateCode(input ValidateCodeInput) error {
 	return err
 }
 
+func (s *Service) ResetPassword(input ResetInput) error {
+	if input.Username == "" || input.Code == "" || input.Password == "" {
+		return ErrInvalidInput
+	}
+
+	record, now, err := s.validateVerificationCode(input.Username, input.Code, "reset")
+	if err != nil {
+		return err
+	}
+
+	user, err := s.repo.FindUserByUsername(input.Username)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	return s.repo.WithTx(func(txRepo *repository.Repository) error {
+		if err := txRepo.ConsumeVerificationCode(record.ID, now); err != nil {
+			return err
+		}
+
+		if err := txRepo.UpdateUserPasswordByID(user.ID, input.Password); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
 func (s *Service) Refresh(input RefreshInput) (*TokenPair, error) {
 	if input.RefreshToken == "" {
 		return nil, ErrInvalidInput
@@ -315,6 +372,80 @@ func (s *Service) Logout(uid string) error {
 	}
 
 	return s.repo.RevokeActiveRefreshTokens(user.ID, s.clock())
+}
+
+func (s *Service) UpdatePassword(input UpdatePasswordInput) error {
+	if input.UID == "" || input.NewPassword == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.repo.FindUserByUID(input.UID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	return s.repo.UpdateUserPasswordByID(user.ID, input.NewPassword)
+}
+
+func (s *Service) UpdateInfo(input UpdateInfoInput) error {
+	if input.UID == "" || input.Nickname == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.repo.FindUserByUID(input.UID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	return s.repo.UpdateUserNicknameByID(user.ID, input.Nickname)
+}
+
+func (s *Service) PutClient(input PutClientInput) error {
+	if input.UID == "" || input.PushType == 0 || input.PushToken == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.repo.FindUserByUID(input.UID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	now := s.clock()
+	client, err := s.repo.FindUserClientByUserIDAndPushToken(user.ID, input.PushToken)
+	if err != nil && !repository.IsNotFound(err) {
+		return err
+	}
+
+	if client == nil {
+		return s.repo.CreateUserClient(&model.UserClient{
+			UserID:     user.ID,
+			PushType:   input.PushType,
+			PushToken:  input.PushToken,
+			Brand:      input.Brand,
+			Version:    input.Version,
+			Language:   input.Language,
+			Zone:       input.Zone,
+			LastSeenAt: now,
+		})
+	}
+
+	return s.repo.UpdateUserClientByID(client.ID, map[string]any{
+		"push_type":    input.PushType,
+		"brand":        input.Brand,
+		"version":      input.Version,
+		"language":     input.Language,
+		"zone":         input.Zone,
+		"last_seen_at": now,
+	})
 }
 
 func (s *Service) issueTokens(repo *repository.Repository, user *model.User, now time.Time) (*TokenPair, error) {

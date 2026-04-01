@@ -84,6 +84,38 @@ func (r *Repository) CreateRefreshToken(token *model.RefreshToken) error {
 	return r.db.Create(token).Error
 }
 
+func (r *Repository) UpdateUserPasswordByID(id uint, passwordHash string) error {
+	return r.db.Model(&model.User{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Update("password_hash", passwordHash).Error
+}
+
+func (r *Repository) UpdateUserNicknameByID(id uint, nickname string) error {
+	return r.db.Model(&model.User{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Update("nickname", nickname).Error
+}
+
+func (r *Repository) FindUserClientByUserIDAndPushToken(userID uint, pushToken string) (*model.UserClient, error) {
+	var client model.UserClient
+	err := r.db.Where("user_id = ? AND push_token = ?", userID, pushToken).First(&client).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &client, nil
+}
+
+func (r *Repository) CreateUserClient(client *model.UserClient) error {
+	return r.db.Create(client).Error
+}
+
+func (r *Repository) UpdateUserClientByID(id uint, attrs map[string]any) error {
+	return r.db.Model(&model.UserClient{}).
+		Where("id = ?", id).
+		Updates(attrs).Error
+}
+
 func (r *Repository) RevokeActiveRefreshTokens(userID uint, now time.Time) error {
 	return r.db.Model(&model.RefreshToken{}).
 		Where("user_id = ? AND revoked_at IS NULL", userID).

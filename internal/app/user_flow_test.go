@@ -11,6 +11,7 @@ import (
 
 	"has-smartlock-service/internal/pkg/config"
 	"has-smartlock-service/internal/pkg/db"
+	"has-smartlock-service/internal/user/model"
 )
 
 type envelope struct {
@@ -188,6 +189,319 @@ func TestValidateCodeFailures(t *testing.T) {
 	}
 }
 
+func TestUserResetPasswordFlow(t *testing.T) {
+	application := newTestApp(t)
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "reset@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "reset@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "old-password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	resetSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/resetSend", map[string]any{
+		"username": "reset@example.com",
+		"country":  "86",
+	}, "")
+	if resetSendResp.Code != 1000 {
+		t.Fatalf("resetSend code = %d, want 1000", resetSendResp.Code)
+	}
+
+	resetResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/reset", map[string]any{
+		"username": "reset@example.com",
+		"code":     "123456",
+		"password": "new-password",
+	}, "")
+	if resetResp.Code != 1000 {
+		t.Fatalf("reset code = %d, want 1000", resetResp.Code)
+	}
+
+	reusedResetResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/reset", map[string]any{
+		"username": "reset@example.com",
+		"code":     "123456",
+		"password": "another-password",
+	}, "")
+	if reusedResetResp.Code != 2005 {
+		t.Fatalf("reused reset code = %d, want 2005", reusedResetResp.Code)
+	}
+
+	oldLoginResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/login", map[string]any{
+		"username":    "reset@example.com",
+		"type":        "password",
+		"password":    "old-password",
+		"phone_brand": "iPhone",
+	}, "")
+	if oldLoginResp.Code != 2004 {
+		t.Fatalf("old password login code = %d, want 2004", oldLoginResp.Code)
+	}
+
+	newLoginResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/login", map[string]any{
+		"username":    "reset@example.com",
+		"type":        "password",
+		"password":    "new-password",
+		"phone_brand": "iPhone",
+	}, "")
+	if newLoginResp.Code != 1000 {
+		t.Fatalf("new password login code = %d, want 1000", newLoginResp.Code)
+	}
+}
+
+func TestResetFailures(t *testing.T) {
+	application := newTestApp(t)
+
+	invalidResetSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/resetSend", map[string]any{
+		"username": "missing-country@example.com",
+	}, "")
+	if invalidResetSendResp.Code != 2000 {
+		t.Fatalf("invalid resetSend code = %d, want 2000", invalidResetSendResp.Code)
+	}
+
+	resetUserNotFoundResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/reset", map[string]any{
+		"username": "missing@example.com",
+		"code":     "123456",
+		"password": "new-password",
+	}, "")
+	if resetUserNotFoundResp.Code != 2005 {
+		t.Fatalf("reset without code record code = %d, want 2005", resetUserNotFoundResp.Code)
+	}
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "invalid-reset@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "invalid-reset@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "old-password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	resetSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/resetSend", map[string]any{
+		"username": "invalid-reset@example.com",
+		"country":  "86",
+	}, "")
+	if resetSendResp.Code != 1000 {
+		t.Fatalf("resetSend code = %d, want 1000", resetSendResp.Code)
+	}
+
+	invalidCodeResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/reset", map[string]any{
+		"username": "invalid-reset@example.com",
+		"code":     "000000",
+		"password": "new-password",
+	}, "")
+	if invalidCodeResp.Code != 2005 {
+		t.Fatalf("invalid reset code = %d, want 2005", invalidCodeResp.Code)
+	}
+
+	expiredApp := newExpiredCodeTestApp(t)
+	expiredRegisterSendResp := performJSONRequest(t, expiredApp.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "expired-reset@example.com",
+		"country":  "86",
+	}, "")
+	if expiredRegisterSendResp.Code != 1000 {
+		t.Fatalf("expired registerSend code = %d, want 1000", expiredRegisterSendResp.Code)
+	}
+
+	expiredRegisterResp := performJSONRequest(t, expiredApp.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "expired-reset@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "old-password",
+	}, "")
+	if expiredRegisterResp.Code != 2006 {
+		t.Fatalf("expired register code = %d, want 2006", expiredRegisterResp.Code)
+	}
+
+	normalApp := newTestApp(t)
+	normalRegisterSendResp := performJSONRequest(t, normalApp.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "expired-reset@example.com",
+		"country":  "86",
+	}, "")
+	if normalRegisterSendResp.Code != 1000 {
+		t.Fatalf("normal registerSend code = %d, want 1000", normalRegisterSendResp.Code)
+	}
+
+	normalRegisterResp := performJSONRequest(t, normalApp.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "expired-reset@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "old-password",
+	}, "")
+	if normalRegisterResp.Code != 1000 {
+		t.Fatalf("normal register code = %d, want 1000", normalRegisterResp.Code)
+	}
+
+	expiredResetApp := newExpiredCodeTestApp(t)
+	expiredResetSendResp := performJSONRequest(t, expiredResetApp.router, http.MethodPost, "/v1/user/resetSend", map[string]any{
+		"username": "expired-reset@example.com",
+		"country":  "86",
+	}, "")
+	if expiredResetSendResp.Code != 1000 {
+		t.Fatalf("expired resetSend code = %d, want 1000", expiredResetSendResp.Code)
+	}
+
+	expiredResetResp := performJSONRequest(t, expiredResetApp.router, http.MethodPost, "/v1/user/reset", map[string]any{
+		"username": "expired-reset@example.com",
+		"code":     "123456",
+		"password": "new-password",
+	}, "")
+	if expiredResetResp.Code != 2006 {
+		t.Fatalf("expired reset code = %d, want 2006", expiredResetResp.Code)
+	}
+}
+
+func TestUserProfileManagementFlow(t *testing.T) {
+	application := newTestApp(t)
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "profile@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "profile@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "old-password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	var registered tokenResponse
+	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
+		t.Fatalf("unmarshal register response: %v", err)
+	}
+
+	updatePwdResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/updatePwd", map[string]any{
+		"new_password": "new-password",
+	}, "Bearer "+registered.AccessToken)
+	if updatePwdResp.Code != 1000 {
+		t.Fatalf("updatePwd code = %d, want 1000", updatePwdResp.Code)
+	}
+
+	oldLoginResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/login", map[string]any{
+		"username":    "profile@example.com",
+		"type":        "password",
+		"password":    "old-password",
+		"phone_brand": "iPhone",
+	}, "")
+	if oldLoginResp.Code != 2004 {
+		t.Fatalf("old password login code = %d, want 2004", oldLoginResp.Code)
+	}
+
+	newLoginResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/login", map[string]any{
+		"username":    "profile@example.com",
+		"type":        "password",
+		"password":    "new-password",
+		"phone_brand": "iPhone",
+	}, "")
+	if newLoginResp.Code != 1000 {
+		t.Fatalf("new password login code = %d, want 1000", newLoginResp.Code)
+	}
+
+	updateInfoResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/updateInfo", map[string]any{
+		"nickname": "Profile Nick",
+	}, "Bearer "+registered.AccessToken)
+	if updateInfoResp.Code != 1000 {
+		t.Fatalf("updateInfo code = %d, want 1000", updateInfoResp.Code)
+	}
+
+	putClientResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/putClient", map[string]any{
+		"push_type":  1,
+		"push_token": "device-token-1",
+		"brand":      "iPhone",
+		"version":    "iOS 18",
+		"language":   "zh_CN",
+		"zone":       "Asia/Shanghai",
+	}, "Bearer "+registered.AccessToken)
+	if putClientResp.Code != 1000 {
+		t.Fatalf("putClient code = %d, want 1000", putClientResp.Code)
+	}
+
+	infoResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/user/info", nil, "Bearer "+registered.AccessToken)
+	if infoResp.Code != 1000 {
+		t.Fatalf("info code = %d, want 1000", infoResp.Code)
+	}
+
+	var userInfo userInfoResponse
+	if err := json.Unmarshal(infoResp.Data, &userInfo); err != nil {
+		t.Fatalf("unmarshal info response: %v", err)
+	}
+	if userInfo.Nickname != "Profile Nick" {
+		t.Fatalf("nickname = %q, want Profile Nick", userInfo.Nickname)
+	}
+
+	assertUserClientSaved(t, application, "device-token-1", "iPhone", "iOS 18", "zh_CN", "Asia/Shanghai")
+}
+
+func TestAuthorizedProfileFailures(t *testing.T) {
+	application := newTestApp(t)
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "authfail@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "authfail@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	var registered tokenResponse
+	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
+		t.Fatalf("unmarshal register response: %v", err)
+	}
+
+	missingAuthResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/updatePwd", map[string]any{
+		"new_password": "new-password",
+	}, "")
+	if missingAuthResp.Code != 2001 {
+		t.Fatalf("missing auth code = %d, want 2001", missingAuthResp.Code)
+	}
+
+	invalidBodyResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/updateInfo", map[string]any{}, "Bearer "+registered.AccessToken)
+	if invalidBodyResp.Code != 2000 {
+		t.Fatalf("invalid updateInfo code = %d, want 2000", invalidBodyResp.Code)
+	}
+
+	invalidPutClientResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/putClient", map[string]any{
+		"push_type": 1,
+	}, "Bearer "+registered.AccessToken)
+	if invalidPutClientResp.Code != 2000 {
+		t.Fatalf("invalid putClient code = %d, want 2000", invalidPutClientResp.Code)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 
@@ -289,4 +603,26 @@ func performJSONRequest(t *testing.T, router http.Handler, method, path string, 
 	}
 
 	return response
+}
+
+func assertUserClientSaved(t *testing.T, application *App, pushToken, brand, version, language, zone string) {
+	t.Helper()
+
+	var client model.UserClient
+	err := application.DB().Where("push_token = ?", pushToken).First(&client).Error
+	if err != nil {
+		t.Fatalf("find user client: %v", err)
+	}
+	if client.Brand != brand {
+		t.Fatalf("client brand = %q, want %q", client.Brand, brand)
+	}
+	if client.Version != version {
+		t.Fatalf("client version = %q, want %q", client.Version, version)
+	}
+	if client.Language != language {
+		t.Fatalf("client language = %q, want %q", client.Language, language)
+	}
+	if client.Zone != zone {
+		t.Fatalf("client zone = %q, want %q", client.Zone, zone)
+	}
 }

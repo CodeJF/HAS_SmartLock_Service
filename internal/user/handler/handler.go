@@ -45,6 +45,29 @@ type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type resetRequest struct {
+	Username string `json:"username"`
+	Code     string `json:"code"`
+	Password string `json:"password"`
+}
+
+type updatePasswordRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
+type updateInfoRequest struct {
+	Nickname string `json:"nickname"`
+}
+
+type putClientRequest struct {
+	PushType  int    `json:"push_type"`
+	PushToken string `json:"push_token"`
+	Brand     string `json:"brand"`
+	Version   string `json:"version"`
+	Language  string `json:"language"`
+	Zone      string `json:"zone"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -57,12 +80,17 @@ func RegisterUserRoutes(group *gin.RouterGroup, handler *Handler, authMiddleware
 	userGroup.POST("/register", handler.Register)
 	userGroup.POST("/login", handler.Login)
 	userGroup.POST("/validateCode", handler.ValidateCode)
+	userGroup.POST("/resetSend", handler.ResetSend)
+	userGroup.POST("/reset", handler.Reset)
 	userGroup.POST("/refresh", handler.Refresh)
 
 	authorized := userGroup.Group("")
 	authorized.Use(authMiddleware)
 	authorized.GET("/info", handler.GetUserInfo)
 	authorized.POST("/logout", handler.Logout)
+	authorized.POST("/updatePwd", handler.UpdatePassword)
+	authorized.POST("/updateInfo", handler.UpdateInfo)
+	authorized.POST("/putClient", handler.PutClient)
 }
 
 func (h *Handler) RegisterSend(c *gin.Context) {
@@ -175,6 +203,44 @@ func (h *Handler) ValidateCode(c *gin.Context) {
 	httpx.Success(c, nil)
 }
 
+func (h *Handler) ResetSend(c *gin.Context) {
+	var req sendCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.SendVerificationCode(service.RegisterSendInput{
+		Username: req.Username,
+		Country:  req.Country,
+		Type:     "reset",
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) Reset(c *gin.Context) {
+	var req resetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.ResetPassword(service.ResetInput{
+		Username: req.Username,
+		Code:     req.Code,
+		Password: req.Password,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
 func (h *Handler) Refresh(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -195,6 +261,65 @@ func (h *Handler) Refresh(c *gin.Context) {
 
 func (h *Handler) Logout(c *gin.Context) {
 	if err := h.service.Logout(auth.UIDFromContext(c)); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) UpdatePassword(c *gin.Context) {
+	var req updatePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.UpdatePassword(service.UpdatePasswordInput{
+		UID:         auth.UIDFromContext(c),
+		NewPassword: req.NewPassword,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) UpdateInfo(c *gin.Context) {
+	var req updateInfoRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.UpdateInfo(service.UpdateInfoInput{
+		UID:      auth.UIDFromContext(c),
+		Nickname: req.Nickname,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) PutClient(c *gin.Context) {
+	var req putClientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.PutClient(service.PutClientInput{
+		UID:       auth.UIDFromContext(c),
+		PushType:  req.PushType,
+		PushToken: req.PushToken,
+		Brand:     req.Brand,
+		Version:   req.Version,
+		Language:  req.Language,
+		Zone:      req.Zone,
+	}); err != nil {
 		renderServiceError(c, err)
 		return
 	}

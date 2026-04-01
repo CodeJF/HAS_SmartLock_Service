@@ -53,8 +53,16 @@
 - 当前 `logout` 会撤销该用户全部活跃 `refresh_token`；`access_token` 不做黑名单，注销后会继续有效直到自然过期。
 - 协作经验：用户希望回答先准确、再解释；尤其在 Gin、GORM、Go 语法、执行时机这类问题上，要避免“方便理解但不精确”的表述。
 
+## 当前记忆（2026-04-01）
+
+- 今天已完成用户模块剩余核心接口：`/v1/user/resetSend`、`/v1/user/reset`、`/v1/user/updatePwd`、`/v1/user/updateInfo`、`/v1/user/putClient`、`/v1/user/deleteSend`、`/v1/user/delete`。
+- 今天已完成删除账号链路，第一版采用逻辑删除；删除后用户无法再登录，活跃 `refresh_token` 会被撤销。
+- 今天已确认 `GET /v1/user/putAvatar` 不再作为独立接口实现；头像地址统一从 `/v1/user/info` 的 `avatar` 字段获取。
+- 截至目前，用户模块主合同中可实现的核心接口已基本完成，OpenAPI 与测试均已同步。
+
 ## 后续待推进
 
 - 用户模块合同中已不再保留 `/v1/user/putAvatar`；头像地址由 `/v1/user/info` 中的 `avatar` 字段提供，不再作为独立接口实现。
 - 在用户模块稳定后，再推进数据库管理规范：明确 `AutoMigrate` 与正式 migration 工具的最终方案，避免长期双轨。
 - 后续进入设备、家庭、事件等模块时，继续保持“先补合同文档/OpenAPI，再实现，再补测试”的顺序。
+- 下一阶段优先级：先做家庭模块，再做设备模块。

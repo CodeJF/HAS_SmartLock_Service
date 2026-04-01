@@ -35,6 +35,16 @@ type loginRequest struct {
 	PhoneBrand string `json:"phone_brand"`
 }
 
+type validateCodeRequest struct {
+	Username string `json:"username"`
+	Code     string `json:"code"`
+	Type     string `json:"type"`
+}
+
+type refreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -46,10 +56,13 @@ func RegisterUserRoutes(group *gin.RouterGroup, handler *Handler, authMiddleware
 	userGroup.POST("/loginSend", handler.LoginSend)
 	userGroup.POST("/register", handler.Register)
 	userGroup.POST("/login", handler.Login)
+	userGroup.POST("/validateCode", handler.ValidateCode)
+	userGroup.POST("/refresh", handler.Refresh)
 
 	authorized := userGroup.Group("")
 	authorized.Use(authMiddleware)
 	authorized.GET("/info", handler.GetUserInfo)
+	authorized.POST("/logout", handler.Logout)
 }
 
 func (h *Handler) RegisterSend(c *gin.Context) {
@@ -143,6 +156,52 @@ func (h *Handler) GetUserInfo(c *gin.Context) {
 	httpx.Success(c, result)
 }
 
+func (h *Handler) ValidateCode(c *gin.Context) {
+	var req validateCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.ValidateCode(service.ValidateCodeInput{
+		Username: req.Username,
+		Code:     req.Code,
+		Type:     req.Type,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) Refresh(c *gin.Context) {
+	var req refreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	result, err := h.service.Refresh(service.RefreshInput{
+		RefreshToken: req.RefreshToken,
+	})
+	if err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, result)
+}
+
+func (h *Handler) Logout(c *gin.Context) {
+	if err := h.service.Logout(auth.UIDFromContext(c)); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
 func renderServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidInput):
@@ -157,6 +216,8 @@ func renderServiceError(c *gin.Context, err error) {
 		httpx.Fail(c, 2005, "invalid verification code", nil)
 	case errors.Is(err, service.ErrExpiredCode):
 		httpx.Fail(c, 2006, "verification code expired", nil)
+	case errors.Is(err, service.ErrRefreshTokenInvalid):
+		httpx.Fail(c, 2007, "refresh token invalid", nil)
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 5000,

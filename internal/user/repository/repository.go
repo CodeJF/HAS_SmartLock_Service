@@ -39,6 +39,16 @@ func (r *Repository) ConsumeVerificationCode(id uint, now time.Time) error {
 		Update("used_at", now).Error
 }
 
+func (r *Repository) FindRefreshToken(token string) (*model.RefreshToken, error) {
+	var refreshToken model.RefreshToken
+	err := r.db.Where("token = ?", token).First(&refreshToken).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &refreshToken, nil
+}
+
 func (r *Repository) CreateUser(user *model.User) error {
 	return r.db.Create(user).Error
 }
@@ -55,6 +65,15 @@ func (r *Repository) FindUserByUsername(username string) (*model.User, error) {
 func (r *Repository) FindUserByUID(uid string) (*model.User, error) {
 	var user model.User
 	err := r.db.Where("uid = ? AND deleted_at IS NULL", uid).First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *Repository) FindUserByID(id uint) (*model.User, error) {
+	var user model.User
+	err := r.db.Where("id = ? AND deleted_at IS NULL", id).First(&user).Error
 	if err != nil {
 		return nil, err
 	}

@@ -12,12 +12,13 @@ import (
 )
 
 var (
-	ErrInvalidInput       = errors.New("invalid input")
-	ErrUserExists         = errors.New("user already exists")
-	ErrUserNotFound       = errors.New("user not found")
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrInvalidCode        = errors.New("invalid verification code")
-	ErrExpiredCode        = errors.New("verification code expired")
+	ErrInvalidInput        = errors.New("invalid input")
+	ErrUserExists          = errors.New("user already exists")
+	ErrUserNotFound        = errors.New("user not found")
+	ErrInvalidCredentials  = errors.New("invalid credentials")
+	ErrInvalidCode         = errors.New("invalid verification code")
+	ErrExpiredCode         = errors.New("verification code expired")
+	ErrRefreshTokenInvalid = errors.New("refresh token invalid")
 )
 
 type Clock func() time.Time
@@ -68,6 +69,16 @@ type UserInfo struct {
 	Avatar       string `json:"avatar"`
 	IsDebug      int    `json:"is_debug"`
 	RegisterTime int64  `json:"register_time"`
+}
+
+type ValidateCodeInput struct {
+	Username string
+	Code     string
+	Type     string
+}
+
+type RefreshInput struct {
+	RefreshToken string
 }
 
 func New(repo *repository.Repository, tokenManager *auth.TokenManager, cfg config.Config) *Service {
@@ -128,20 +139,9 @@ func (s *Service) Register(input RegisterInput) (*TokenPair, error) {
 		return nil, err
 	}
 
-	record, err := s.repo.FindLatestVerificationCode(input.Username, "register")
+	record, now, err := s.validateVerificationCode(input.Username, input.Code, "register")
 	if err != nil {
-		if repository.IsNotFound(err) {
-			return nil, ErrInvalidCode
-		}
 		return nil, err
-	}
-
-	now := s.clock()
-	if record.UsedAt != nil || record.Code != input.Code {
-		return nil, ErrInvalidCode
-	}
-	if now.After(record.ExpiresAt) {
-		return nil, ErrExpiredCode
 	}
 
 	var result *TokenPair
@@ -197,18 +197,9 @@ func (s *Service) Login(input LoginInput) (*TokenPair, error) {
 			return nil, ErrInvalidCredentials
 		}
 	case "code":
-		record, err := s.repo.FindLatestVerificationCode(input.Username, "login")
+		record, _, err := s.validateVerificationCode(input.Username, input.Code, "login")
 		if err != nil {
-			if repository.IsNotFound(err) {
-				return nil, ErrInvalidCode
-			}
 			return nil, err
-		}
-		if record.UsedAt != nil || record.Code != input.Code {
-			return nil, ErrInvalidCode
-		}
-		if now.After(record.ExpiresAt) {
-			return nil, ErrExpiredCode
 		}
 		if err := s.repo.ConsumeVerificationCode(record.ID, now); err != nil {
 			return nil, err
@@ -255,6 +246,77 @@ func (s *Service) GetUserInfo(uid string) (*UserInfo, error) {
 	}, nil
 }
 
+func (s *Service) ValidateCode(input ValidateCodeInput) error {
+	if input.Username == "" || input.Code == "" || input.Type == "" {
+		return ErrInvalidInput
+	}
+
+	_, _, err := s.validateVerificationCode(input.Username, input.Code, input.Type)
+	return err
+}
+
+func (s *Service) Refresh(input RefreshInput) (*TokenPair, error) {
+	if input.RefreshToken == "" {
+		return nil, ErrInvalidInput
+	}
+
+	record, err := s.repo.FindRefreshToken(input.RefreshToken)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return nil, ErrRefreshTokenInvalid
+		}
+		return nil, err
+	}
+
+	now := s.clock()
+	if record.RevokedAt != nil || now.After(record.ExpiresAt) {
+		return nil, ErrRefreshTokenInvalid
+	}
+
+	user, err := s.repo.FindUserByID(record.UserID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+
+	var result *TokenPair
+	err = s.repo.WithTx(func(txRepo *repository.Repository) error {
+		if err := txRepo.RevokeActiveRefreshTokens(user.ID, now); err != nil {
+			return err
+		}
+
+		tokens, err := s.issueTokens(txRepo, user, now)
+		if err != nil {
+			return err
+		}
+		result = tokens
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (s *Service) Logout(uid string) error {
+	if uid == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.repo.FindUserByUID(uid)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	return s.repo.RevokeActiveRefreshTokens(user.ID, s.clock())
+}
+
 func (s *Service) issueTokens(repo *repository.Repository, user *model.User, now time.Time) (*TokenPair, error) {
 	accessToken, accessExpiresAt, err := s.tokenManager.GenerateAccessToken(user.UID, now)
 	if err != nil {
@@ -284,4 +346,24 @@ func (s *Service) issueTokens(repo *repository.Repository, user *model.User, now
 		IsDebug:      user.IsDebug,
 		Expiration:   accessExpiresAt.Unix(),
 	}, nil
+}
+
+func (s *Service) validateVerificationCode(username, code, codeType string) (*model.VerificationCode, time.Time, error) {
+	record, err := s.repo.FindLatestVerificationCode(username, codeType)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return nil, time.Time{}, ErrInvalidCode
+		}
+		return nil, time.Time{}, err
+	}
+
+	now := s.clock()
+	if record.UsedAt != nil || record.Code != code {
+		return nil, time.Time{}, ErrInvalidCode
+	}
+	if now.After(record.ExpiresAt) {
+		return nil, time.Time{}, ErrExpiredCode
+	}
+
+	return record, now, nil
 }

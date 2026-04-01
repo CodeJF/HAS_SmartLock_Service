@@ -116,6 +116,12 @@ func (r *Repository) UpdateUserClientByID(id uint, attrs map[string]any) error {
 		Updates(attrs).Error
 }
 
+func (r *Repository) SoftDeleteUserByID(id uint, now time.Time) error {
+	return r.db.Model(&model.User{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Update("deleted_at", now).Error
+}
+
 func (r *Repository) RevokeActiveRefreshTokens(userID uint, now time.Time) error {
 	return r.db.Model(&model.RefreshToken{}).
 		Where("user_id = ? AND revoked_at IS NULL", userID).

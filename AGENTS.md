@@ -55,6 +55,6 @@
 
 ## 后续待推进
 
-- 继续完成用户模块剩余接口：`/v1/user/resetSend`、`/v1/user/reset`、`/v1/user/updatePwd`、`/v1/user/updateInfo`、`/v1/user/putClient`、`/v1/user/deleteSend`、`/v1/user/delete`、`/v1/user/putAvatar`。
+- 用户模块合同中已不再保留 `/v1/user/putAvatar`；头像地址由 `/v1/user/info` 中的 `avatar` 字段提供，不再作为独立接口实现。
 - 在用户模块稳定后，再推进数据库管理规范：明确 `AutoMigrate` 与正式 migration 工具的最终方案，避免长期双轨。
 - 后续进入设备、家庭、事件等模块时，继续保持“先补合同文档/OpenAPI，再实现，再补测试”的顺序。

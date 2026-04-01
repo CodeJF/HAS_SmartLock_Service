@@ -68,6 +68,15 @@ type putClientRequest struct {
 	Zone      string `json:"zone"`
 }
 
+type deleteSendRequest struct {
+	Username string `json:"username"`
+}
+
+type deleteRequest struct {
+	Username string `json:"username"`
+	Code     string `json:"code"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -91,6 +100,8 @@ func RegisterUserRoutes(group *gin.RouterGroup, handler *Handler, authMiddleware
 	authorized.POST("/updatePwd", handler.UpdatePassword)
 	authorized.POST("/updateInfo", handler.UpdateInfo)
 	authorized.POST("/putClient", handler.PutClient)
+	authorized.POST("/deleteSend", handler.DeleteSend)
+	authorized.POST("/delete", handler.Delete)
 }
 
 func (h *Handler) RegisterSend(c *gin.Context) {
@@ -319,6 +330,40 @@ func (h *Handler) PutClient(c *gin.Context) {
 		Version:   req.Version,
 		Language:  req.Language,
 		Zone:      req.Zone,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) DeleteSend(c *gin.Context) {
+	var req deleteSendRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.DeleteSend(auth.UIDFromContext(c), req.Username); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) Delete(c *gin.Context) {
+	var req deleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.DeleteAccount(service.DeleteInput{
+		UID:      auth.UIDFromContext(c),
+		Username: req.Username,
+		Code:     req.Code,
 	}); err != nil {
 		renderServiceError(c, err)
 		return

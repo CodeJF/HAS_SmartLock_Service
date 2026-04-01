@@ -502,6 +502,193 @@ func TestAuthorizedProfileFailures(t *testing.T) {
 	}
 }
 
+func TestUserDeleteAccountFlow(t *testing.T) {
+	application := newTestApp(t)
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "delete@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "delete@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "delete-password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	var registered tokenResponse
+	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
+		t.Fatalf("unmarshal register response: %v", err)
+	}
+
+	deleteSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/deleteSend", map[string]any{
+		"username": "delete@example.com",
+	}, "Bearer "+registered.AccessToken)
+	if deleteSendResp.Code != 1000 {
+		t.Fatalf("deleteSend code = %d, want 1000", deleteSendResp.Code)
+	}
+
+	deleteResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/delete", map[string]any{
+		"username": "delete@example.com",
+		"code":     "123456",
+	}, "Bearer "+registered.AccessToken)
+	if deleteResp.Code != 1000 {
+		t.Fatalf("delete code = %d, want 1000", deleteResp.Code)
+	}
+
+	reusedDeleteResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/delete", map[string]any{
+		"username": "delete@example.com",
+		"code":     "123456",
+	}, "Bearer "+registered.AccessToken)
+	if reusedDeleteResp.Code != 2003 {
+		t.Fatalf("reused delete code = %d, want 2003", reusedDeleteResp.Code)
+	}
+
+	loginResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/login", map[string]any{
+		"username":    "delete@example.com",
+		"type":        "password",
+		"password":    "delete-password",
+		"phone_brand": "iPhone",
+	}, "")
+	if loginResp.Code != 2003 {
+		t.Fatalf("deleted user login code = %d, want 2003", loginResp.Code)
+	}
+
+	refreshResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/refresh", map[string]any{
+		"refresh_token": registered.RefreshToken,
+	}, "")
+	if refreshResp.Code != 2007 {
+		t.Fatalf("deleted user refresh code = %d, want 2007", refreshResp.Code)
+	}
+
+	infoResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/user/info", nil, "Bearer "+registered.AccessToken)
+	if infoResp.Code != 2003 {
+		t.Fatalf("deleted user info code = %d, want 2003", infoResp.Code)
+	}
+}
+
+func TestDeleteAccountFailures(t *testing.T) {
+	application := newTestApp(t)
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "delete-fail@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "delete-fail@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	var registered tokenResponse
+	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
+		t.Fatalf("unmarshal register response: %v", err)
+	}
+
+	missingAuthDeleteSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/deleteSend", map[string]any{
+		"username": "delete-fail@example.com",
+	}, "")
+	if missingAuthDeleteSendResp.Code != 2001 {
+		t.Fatalf("missing auth deleteSend code = %d, want 2001", missingAuthDeleteSendResp.Code)
+	}
+
+	invalidDeleteSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/deleteSend", map[string]any{
+		"username": "other@example.com",
+	}, "Bearer "+registered.AccessToken)
+	if invalidDeleteSendResp.Code != 2000 {
+		t.Fatalf("invalid deleteSend code = %d, want 2000", invalidDeleteSendResp.Code)
+	}
+
+	deleteSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/deleteSend", map[string]any{
+		"username": "delete-fail@example.com",
+	}, "Bearer "+registered.AccessToken)
+	if deleteSendResp.Code != 1000 {
+		t.Fatalf("deleteSend code = %d, want 1000", deleteSendResp.Code)
+	}
+
+	invalidCodeDeleteResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/delete", map[string]any{
+		"username": "delete-fail@example.com",
+		"code":     "000000",
+	}, "Bearer "+registered.AccessToken)
+	if invalidCodeDeleteResp.Code != 2005 {
+		t.Fatalf("invalid delete code = %d, want 2005", invalidCodeDeleteResp.Code)
+	}
+
+	mismatchDeleteResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/delete", map[string]any{
+		"username": "other@example.com",
+		"code":     "123456",
+	}, "Bearer "+registered.AccessToken)
+	if mismatchDeleteResp.Code != 2000 {
+		t.Fatalf("mismatch delete code = %d, want 2000", mismatchDeleteResp.Code)
+	}
+
+	expiredApp := newExpiredCodeTestApp(t)
+	expiredRegisterSendResp := performJSONRequest(t, expiredApp.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "expired-delete@example.com",
+		"country":  "86",
+	}, "")
+	if expiredRegisterSendResp.Code != 1000 {
+		t.Fatalf("expired registerSend code = %d, want 1000", expiredRegisterSendResp.Code)
+	}
+
+	expiredRegisterResp := performJSONRequest(t, expiredApp.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "expired-delete@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "password",
+	}, "")
+	if expiredRegisterResp.Code != 2006 {
+		t.Fatalf("expired register code = %d, want 2006", expiredRegisterResp.Code)
+	}
+
+	normalApp := newTestApp(t)
+	normalRegisterSendResp := performJSONRequest(t, normalApp.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "expired-delete@example.com",
+		"country":  "86",
+	}, "")
+	if normalRegisterSendResp.Code != 1000 {
+		t.Fatalf("normal registerSend code = %d, want 1000", normalRegisterSendResp.Code)
+	}
+
+	normalRegisterResp := performJSONRequest(t, normalApp.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "expired-delete@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "password",
+	}, "")
+	if normalRegisterResp.Code != 1000 {
+		t.Fatalf("normal register code = %d, want 1000", normalRegisterResp.Code)
+	}
+
+	var normalRegistered tokenResponse
+	if err := json.Unmarshal(normalRegisterResp.Data, &normalRegistered); err != nil {
+		t.Fatalf("unmarshal normal register response: %v", err)
+	}
+
+	expiredDeleteApp := newExpiredCodeTestApp(t)
+	expiredDeleteSendResp := performJSONRequest(t, expiredDeleteApp.router, http.MethodPost, "/v1/user/deleteSend", map[string]any{
+		"username": "expired-delete@example.com",
+	}, "Bearer "+normalRegistered.AccessToken)
+	if expiredDeleteSendResp.Code != 2003 {
+		t.Fatalf("expired deleteSend with foreign db code = %d, want 2003", expiredDeleteSendResp.Code)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 

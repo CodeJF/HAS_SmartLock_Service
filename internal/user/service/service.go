@@ -107,6 +107,12 @@ type PutClientInput struct {
 	Zone      string
 }
 
+type DeleteInput struct {
+	UID      string
+	Username string
+	Code     string
+}
+
 func New(repo *repository.Repository, tokenManager *auth.TokenManager, cfg config.Config) *Service {
 	return &Service{
 		repo:         repo,
@@ -445,6 +451,69 @@ func (s *Service) PutClient(input PutClientInput) error {
 		"language":     input.Language,
 		"zone":         input.Zone,
 		"last_seen_at": now,
+	})
+}
+
+func (s *Service) DeleteSend(uid, username string) error {
+	if uid == "" || username == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.repo.FindUserByUID(uid)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	if user.Username != username {
+		return ErrInvalidInput
+	}
+
+	return s.SendVerificationCode(RegisterSendInput{
+		Username: username,
+		Country:  user.Country,
+		Type:     "delete",
+	})
+}
+
+func (s *Service) DeleteAccount(input DeleteInput) error {
+	if input.UID == "" || input.Username == "" || input.Code == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.repo.FindUserByUID(input.UID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	if user.Username != input.Username {
+		return ErrInvalidInput
+	}
+
+	record, now, err := s.validateVerificationCode(input.Username, input.Code, "delete")
+	if err != nil {
+		return err
+	}
+
+	return s.repo.WithTx(func(txRepo *repository.Repository) error {
+		if err := txRepo.ConsumeVerificationCode(record.ID, now); err != nil {
+			return err
+		}
+
+		if err := txRepo.SoftDeleteUserByID(user.ID, now); err != nil {
+			return err
+		}
+
+		if err := txRepo.RevokeActiveRefreshTokens(user.ID, now); err != nil {
+			return err
+		}
+
+		return nil
 	})
 }
 

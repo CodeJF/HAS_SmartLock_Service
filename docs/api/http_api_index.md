@@ -162,16 +162,7 @@
 
 ---
 
-### 10. 获取上传用户头像地址
-- **Method**: `GET`
-- **Path**: `/v1/user/putAvatar`
-- **Auth**: ✅
-- **参数方式**: 无参数
-- **返回值**: TODO（无示例）
-
----
-
-### 11. 修改密码
+### 10. 修改密码
 - **Method**: `POST`
 - **Path**: `/v1/user/updatePwd`
 - **Auth**: ✅
@@ -184,7 +175,7 @@
 
 ---
 
-### 12. 修改昵称
+### 11. 修改昵称
 - **Method**: `POST`
 - **Path**: `/v1/user/updateInfo`
 - **Auth**: ✅
@@ -197,7 +188,7 @@
 
 ---
 
-### 13. 上报登录设备信息
+### 12. 上报登录设备信息
 - **Method**: `POST`
 - **Path**: `/v1/user/putClient`
 - **Auth**: ✅
@@ -215,7 +206,7 @@
 
 ---
 
-### 14. 退出登录
+### 13. 退出登录
 - **Method**: `POST`
 - **Path**: `/v1/user/logout`
 - **Auth**: ✅
@@ -224,7 +215,7 @@
 
 ---
 
-### 15. 发送删除帐号验证码
+### 14. 发送删除帐号验证码
 - **Method**: `POST`
 - **Path**: `/v1/user/deleteSend`
 - **Auth**: ✅
@@ -237,7 +228,7 @@
 
 ---
 
-### 16. 删除帐号
+### 15. 删除帐号
 - **Method**: `POST`
 - **Path**: `/v1/user/delete`
 - **Auth**: ✅

@@ -369,6 +369,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+  /v1/user/deleteSend:
+    post:
+      tags:
+        - User
+      summary: 发送删除帐号验证码
+      operationId: userDeleteSend
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteSendRequest'
+            example:
+              username: demo@example.com
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/user/delete:
+    post:
+      tags:
+        - User
+      summary: 删除帐号
+      operationId: userDelete
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteRequest'
+            example:
+              username: demo@example.com
+              code: '123456'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
 components:
   securitySchemes:
     bearerAuth:
@@ -545,6 +592,23 @@ components:
         language:
           type: string
         zone:
+          type: string
+    DeleteSendRequest:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
+    DeleteRequest:
+      type: object
+      required:
+        - username
+        - code
+      properties:
+        username:
+          type: string
+        code:
           type: string
     TokenData:
       type: object

@@ -96,6 +96,12 @@ func (r *Repository) UpdateUserNicknameByID(id uint, nickname string) error {
 		Update("nickname", nickname).Error
 }
 
+func (r *Repository) UpdateUserAvatarByID(id uint, avatar string) error {
+	return r.db.Model(&model.User{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Update("avatar", avatar).Error
+}
+
 func (r *Repository) FindUserClientByUserIDAndPushToken(userID uint, pushToken string) (*model.UserClient, error) {
 	var client model.UserClient
 	err := r.db.Where("user_id = ? AND push_token = ?", userID, pushToken).First(&client).Error

@@ -20,12 +20,22 @@
 
 ```bash
 go mod tidy
+cp .env.example .env
 go run ./cmd/api
 ```
 
 默认监听地址：
 
 - `http://localhost:8080`
+
+程序启动时会自动读取仓库根目录的 `.env`。
+也支持通过 `CONFIG_FILE=/absolute/path/.env` 显式指定配置文件。
+
+环境变量优先级：
+
+1. 系统环境变量
+2. `.env`
+3. 代码中的默认值
 
 可用环境变量：
 
@@ -37,6 +47,46 @@ go run ./cmd/api
 - `MYSQL_DSN`
 - `AUTO_MIGRATE`
 - `JWT_SECRET`
+- `ACCESS_TOKEN_TTL_SECONDS`
+- `REFRESH_TOKEN_TTL_SECONDS`
+- `VERIFICATION_CODE_TTL_SECONDS`
+- `OSS_ENDPOINT`
+- `OSS_BUCKET_NAME`
+- `OSS_PUBLIC_BASE_URL`
+- `OSS_ACCESS_KEY_ID`
+- `OSS_ACCESS_KEY_SECRET`
+- `OSS_AVATAR_PREFIX`
+- `OSS_UPLOAD_URL_TTL_SECONDS`
+- `OSS_SIGNED_READ_URL_TTL_SECONDS`
+- `OSS_STS_ROLE_ARN`
+- `OSS_STS_SESSION_PREFIX`
+- `OSS_STS_DURATION_SECONDS`
+
+最小本地开发示例：
+
+```env
+APP_ENV=development
+HTTP_ADDR=:8080
+DB_DRIVER=sqlite
+DB_DSN=file:has_smartlock_service.db?_foreign_keys=on
+JWT_SECRET=dev-secret-change-me
+OSS_ENDPOINT=oss-cn-shenzhen.aliyuncs.com
+OSS_BUCKET_NAME=has-smartlock
+OSS_PUBLIC_BASE_URL=https://has-smartlock.cn-shenzhen.taihangpkx.cn
+OSS_ACCESS_KEY_ID=
+OSS_ACCESS_KEY_SECRET=
+OSS_AVATAR_PREFIX=avatar
+OSS_UPLOAD_URL_TTL_SECONDS=900
+OSS_SIGNED_READ_URL_TTL_SECONDS=900
+OSS_STS_ROLE_ARN=
+OSS_STS_SESSION_PREFIX=has-smartlock-avatar
+OSS_STS_DURATION_SECONDS=900
+```
+
+如果使用 GoLand 直接点击运行：
+
+- 默认也会自动读取仓库根目录的 `.env`
+- 如有特殊 Run Configuration，可通过环境变量 `CONFIG_FILE` 显式指定配置文件路径
 
 ## 当前接口
 

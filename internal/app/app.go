@@ -6,10 +6,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	cloudhandler "has-smartlock-service/internal/cloud/handler"
+	cloudservice "has-smartlock-service/internal/cloud/service"
 	"has-smartlock-service/internal/pkg/auth"
 	"has-smartlock-service/internal/pkg/config"
 	"has-smartlock-service/internal/pkg/db"
 	"has-smartlock-service/internal/pkg/httpx"
+	"has-smartlock-service/internal/pkg/stsclient"
 	"has-smartlock-service/internal/user/handler"
 	"has-smartlock-service/internal/user/repository"
 	"has-smartlock-service/internal/user/service"
@@ -37,7 +40,9 @@ func NewWithDependencies(cfg config.Config, database *gorm.DB) (*App, error) {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 
-	registerRoutes(router, cfg, database)
+	if err := registerRoutes(router, cfg, database); err != nil {
+		return nil, err
+	}
 
 	return &App{
 		config: cfg,
@@ -58,7 +63,7 @@ func (a *App) DB() *gorm.DB {
 	return a.db
 }
 
-func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) {
+func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) error {
 	router.GET("/healthz", func(c *gin.Context) {
 		httpx.Success(c, gin.H{
 			"status": "ok",
@@ -73,11 +78,20 @@ func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) {
 
 	userRepo := repository.New(database)
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	stsTokenClient, err := stsclient.New(cfg)
+	if err != nil {
+		return err
+	}
 	userService := service.New(userRepo, tokenManager, cfg)
 	userHandler := handler.New(userService)
+	cloudService := cloudservice.New(userRepo, stsTokenClient)
+	cloudHandler := cloudhandler.New(cloudService)
 
 	v1 := router.Group("/v1")
-	handler.RegisterUserRoutes(v1, userHandler, auth.Middleware(tokenManager))
+	authMiddleware := auth.Middleware(tokenManager)
+	handler.RegisterUserRoutes(v1, userHandler, authMiddleware)
+	cloudhandler.RegisterCloudRoutes(v1, cloudHandler, authMiddleware)
+	return nil
 }
 
 func ginMode(appEnv string) string {

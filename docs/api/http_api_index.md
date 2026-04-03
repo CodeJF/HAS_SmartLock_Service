@@ -156,7 +156,7 @@
   |------|------|------|
   | `username` | `string` | 登录账号 |
   | `nickname` | `string?` | 昵称 |
-  | `avatar` | `string?` | 头像 URL |
+  | `avatar` | `string?` | 头像 object key，固定为 `avatar/{uid}` |
   | `is_debug` | `int?` | 是否调试账号 |
   | `register_time` | `int?` | 注册时间（Unix 秒） |
 

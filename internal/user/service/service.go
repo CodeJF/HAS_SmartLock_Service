@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"has-smartlock-service/internal/pkg/auth"
@@ -111,6 +112,23 @@ type DeleteInput struct {
 	UID      string
 	Username string
 	Code     string
+}
+
+type AvatarUploadPrepareInput struct {
+	UID         string
+	ContentType string
+}
+
+type AvatarUploadPrepareResult struct {
+	ObjectKey string `json:"object_key"`
+	UploadURL string `json:"upload_url"`
+	Bucket    string `json:"bucket"`
+	ExpireAt  int64  `json:"expire_at"`
+}
+
+type AvatarUploadConfirmInput struct {
+	UID       string
+	ObjectKey string
 }
 
 func New(repo *repository.Repository, tokenManager *auth.TokenManager, cfg config.Config) *Service {
@@ -272,7 +290,7 @@ func (s *Service) GetUserInfo(uid string) (*UserInfo, error) {
 	return &UserInfo{
 		Username:     user.Username,
 		Nickname:     user.Nickname,
-		Avatar:       user.Avatar,
+		Avatar:       s.avatarObjectKey(user.UID),
 		IsDebug:      user.IsDebug,
 		RegisterTime: user.RegisterTime,
 	}, nil
@@ -515,6 +533,18 @@ func (s *Service) DeleteAccount(input DeleteInput) error {
 
 		return nil
 	})
+}
+
+func (s *Service) avatarObjectKey(uid string) string {
+	prefix := strings.Trim(strings.TrimSpace(s.cfg.OSSAvatarPrefix), "/")
+	if prefix == "" {
+		prefix = "avatar"
+	}
+	uid = strings.Trim(strings.TrimSpace(uid), "/")
+	if uid == "" {
+		return prefix
+	}
+	return prefix + "/" + uid
 }
 
 func (s *Service) issueTokens(repo *repository.Repository, user *model.User, now time.Time) (*TokenPair, error) {

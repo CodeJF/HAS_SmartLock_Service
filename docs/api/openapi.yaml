@@ -11,6 +11,7 @@ servers:
 tags:
   - name: System
   - name: User
+  - name: Cloud
 paths:
   /healthz:
     get:
@@ -277,7 +278,7 @@ paths:
                 data:
                   username: demo@example.com
                   nickname: demo@example.com
-                  avatar: ''
+                  avatar: avatar/u_123456789
                   is_debug: 0
                   register_time: 1711857600
   /v1/user/logout:
@@ -369,6 +370,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+  /v1/cloud/getToken:
+    get:
+      tags:
+        - Cloud
+      summary: 获取 OSS STS 临时凭证
+      operationId: cloudGetToken
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: uuid
+          required: true
+          schema:
+            type: string
+          description: 设备 UUID（当前仅兼容保留）
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudTokenEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  access_token_id: STS.Ndemo
+                  access_key_secret: demo-secret
+                  security_token: demo-security-token
+                  expiration: 1777777777
+                  region_id: cn-shenzhen
+                  endpoint: oss-cn-shenzhen.aliyuncs.com
+                  bucket: has-smartlock
   /v1/user/deleteSend:
     post:
       tags:
@@ -664,3 +698,36 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/UserInfoData'
+    CloudTokenData:
+      type: object
+      required:
+        - access_token_id
+        - access_key_secret
+        - security_token
+        - expiration
+        - region_id
+        - endpoint
+        - bucket
+      properties:
+        access_token_id:
+          type: string
+        access_key_secret:
+          type: string
+        security_token:
+          type: string
+        expiration:
+          type: integer
+          format: int64
+        region_id:
+          type: string
+        endpoint:
+          type: string
+        bucket:
+          type: string
+    CloudTokenEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CloudTokenData'

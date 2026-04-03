@@ -36,6 +36,16 @@ type userInfoResponse struct {
 	RegisterTime int64  `json:"register_time"`
 }
 
+type cloudTokenResponse struct {
+	AccessTokenID   string `json:"access_token_id"`
+	AccessKeySecret string `json:"access_key_secret"`
+	SecurityToken   string `json:"security_token"`
+	Expiration      int64  `json:"expiration"`
+	RegionID        string `json:"region_id"`
+	Endpoint        string `json:"endpoint"`
+	Bucket          string `json:"bucket"`
+}
+
 func TestUserRegisterLoginFlow(t *testing.T) {
 	application := newTestApp(t)
 
@@ -108,6 +118,9 @@ func TestUserRegisterLoginFlow(t *testing.T) {
 	}
 	if userInfo.Username != "demo@example.com" {
 		t.Fatalf("username = %q, want demo@example.com", userInfo.Username)
+	}
+	if userInfo.Avatar != "avatar/"+loggedIn.UID {
+		t.Fatalf("avatar = %q, want %q", userInfo.Avatar, "avatar/"+loggedIn.UID)
 	}
 
 	refreshResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/refresh", map[string]any{
@@ -500,6 +513,81 @@ func TestAuthorizedProfileFailures(t *testing.T) {
 	if invalidPutClientResp.Code != 2000 {
 		t.Fatalf("invalid putClient code = %d, want 2000", invalidPutClientResp.Code)
 	}
+
+	missingAuthGetTokenResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/cloud/getToken?uuid=device-1", nil, "")
+	if missingAuthGetTokenResp.Code != 2001 {
+		t.Fatalf("missing auth getToken code = %d, want 2001", missingAuthGetTokenResp.Code)
+	}
+}
+
+func TestCloudGetTokenFlow(t *testing.T) {
+	application := newTestApp(t)
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "avatar@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "avatar@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "avatar-password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	var registered tokenResponse
+	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
+		t.Fatalf("unmarshal register response: %v", err)
+	}
+
+	infoResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/user/info", nil, "Bearer "+registered.AccessToken)
+	if infoResp.Code != 1000 {
+		t.Fatalf("info code = %d, want 1000", infoResp.Code)
+	}
+
+	var userInfo userInfoResponse
+	if err := json.Unmarshal(infoResp.Data, &userInfo); err != nil {
+		t.Fatalf("unmarshal info response: %v", err)
+	}
+	if userInfo.Avatar != "avatar/"+registered.UID {
+		t.Fatalf("avatar = %q, want %q", userInfo.Avatar, "avatar/"+registered.UID)
+	}
+
+	missingUUIDResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/cloud/getToken", nil, "Bearer "+registered.AccessToken)
+	if missingUUIDResp.Code != 2000 {
+		t.Fatalf("missing uuid getToken code = %d, want 2000", missingUUIDResp.Code)
+	}
+
+	getTokenResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/cloud/getToken?uuid=device-123", nil, "Bearer "+registered.AccessToken)
+	if getTokenResp.Code != 1000 {
+		t.Fatalf("getToken code = %d, want 1000", getTokenResp.Code)
+	}
+
+	var token cloudTokenResponse
+	if err := json.Unmarshal(getTokenResp.Data, &token); err != nil {
+		t.Fatalf("unmarshal getToken response: %v", err)
+	}
+	if token.AccessTokenID == "" || token.AccessKeySecret == "" || token.SecurityToken == "" {
+		t.Fatalf("sts token fields should not be empty: %+v", token)
+	}
+	if token.Expiration == 0 {
+		t.Fatalf("expiration should not be zero")
+	}
+	if token.RegionID != "cn-shenzhen" {
+		t.Fatalf("region_id = %q, want cn-shenzhen", token.RegionID)
+	}
+	if token.Endpoint != "oss-cn-shenzhen.aliyuncs.com" {
+		t.Fatalf("endpoint = %q, want oss-cn-shenzhen.aliyuncs.com", token.Endpoint)
+	}
+	if token.Bucket != "has-smartlock" {
+		t.Fatalf("bucket = %q, want has-smartlock", token.Bucket)
+	}
 }
 
 func TestUserDeleteAccountFlow(t *testing.T) {
@@ -693,16 +781,25 @@ func newTestApp(t *testing.T) *App {
 	t.Helper()
 
 	cfg := config.Config{
-		AppName:         "has-smartlock-service-test",
-		AppEnv:          "test",
-		HTTPAddr:        ":0",
-		DBDriver:        "sqlite",
-		DBDSN:           "file:user_flow_test?mode=memory&cache=shared",
-		AutoMigrate:     true,
-		JWTSecret:       "test-secret",
-		AccessTokenTTL:  3600,
-		RefreshTokenTTL: 86400,
-		VerificationTTL: 300,
+		AppName:            "has-smartlock-service-test",
+		AppEnv:             "test",
+		HTTPAddr:           ":0",
+		DBDriver:           "sqlite",
+		DBDSN:              "file:user_flow_test?mode=memory&cache=shared",
+		AutoMigrate:        true,
+		JWTSecret:          "test-secret",
+		AccessTokenTTL:     3600,
+		RefreshTokenTTL:    86400,
+		VerificationTTL:    300,
+		OSSEndpoint:        "oss-cn-shenzhen.aliyuncs.com",
+		OSSBucketName:      "has-smartlock",
+		OSSPublicBaseURL:   "https://has-smartlock.cn-shenzhen.taihangpkx.cn",
+		OSSAccessKeyID:     "test-ak",
+		OSSAccessKeySecret: "test-sk",
+		OSSAvatarPrefix:    "avatar",
+		OSSUploadURLTTL:    900,
+		OSSSTSRoleARN:      "acs:ram::1234567890123456:role/test-role",
+		OSSSTSDuration:     900,
 	}
 
 	database, err := db.Open(cfg)
@@ -724,16 +821,25 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 	t.Helper()
 
 	cfg := config.Config{
-		AppName:         "has-smartlock-service-test",
-		AppEnv:          "test",
-		HTTPAddr:        ":0",
-		DBDriver:        "sqlite",
-		DBDSN:           "file:user_flow_test_expired?mode=memory&cache=shared",
-		AutoMigrate:     true,
-		JWTSecret:       "test-secret",
-		AccessTokenTTL:  3600,
-		RefreshTokenTTL: 86400,
-		VerificationTTL: -1,
+		AppName:            "has-smartlock-service-test",
+		AppEnv:             "test",
+		HTTPAddr:           ":0",
+		DBDriver:           "sqlite",
+		DBDSN:              "file:user_flow_test_expired?mode=memory&cache=shared",
+		AutoMigrate:        true,
+		JWTSecret:          "test-secret",
+		AccessTokenTTL:     3600,
+		RefreshTokenTTL:    86400,
+		VerificationTTL:    -1,
+		OSSEndpoint:        "oss-cn-shenzhen.aliyuncs.com",
+		OSSBucketName:      "has-smartlock",
+		OSSPublicBaseURL:   "https://has-smartlock.cn-shenzhen.taihangpkx.cn",
+		OSSAccessKeyID:     "test-ak",
+		OSSAccessKeySecret: "test-sk",
+		OSSAvatarPrefix:    "avatar",
+		OSSUploadURLTTL:    900,
+		OSSSTSRoleARN:      "acs:ram::1234567890123456:role/test-role",
+		OSSSTSDuration:     900,
 	}
 
 	database, err := db.Open(cfg)

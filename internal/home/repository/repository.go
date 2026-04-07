@@ -20,6 +20,23 @@ type HomeMemberWithUser struct {
 	User   usermodel.User
 }
 
+type HomeDeviceWithDevice struct {
+	Link struct {
+		ID uint
+	}
+	Device struct {
+		ID            uint
+		UUID          string
+		DeviceID      string
+		UID           string
+		BindType      int
+		Secret        string
+		Name          string
+		FirstBindTime int64
+		BindTime      int64
+	}
+}
+
 type Repository struct {
 	db *gorm.DB
 }
@@ -116,6 +133,64 @@ func (r *Repository) ListHomeMembersByInternalHomeID(homeID uint) ([]HomeMemberW
 		result = append(result, HomeMemberWithUser{
 			Member: row.Member,
 			User:   row.User,
+		})
+	}
+	return result, nil
+}
+
+func (r *Repository) ListHomeDevicesByInternalHomeID(homeID uint) ([]HomeDeviceWithDevice, error) {
+	var rows []struct {
+		LinkID              uint   `gorm:"column:link_id"`
+		DeviceID            uint   `gorm:"column:device_id"`
+		DeviceUUID          string `gorm:"column:device_uuid"`
+		DeviceDeviceID      string `gorm:"column:device_device_id"`
+		DeviceUID           string `gorm:"column:device_uid"`
+		DeviceBindType      int    `gorm:"column:device_bind_type"`
+		DeviceSecret        string `gorm:"column:device_secret"`
+		DeviceName          string `gorm:"column:device_name"`
+		DeviceFirstBindTime int64  `gorm:"column:device_first_bind_time"`
+		DeviceBindTime      int64  `gorm:"column:device_bind_time"`
+	}
+
+	err := r.db.Table("home_devices").
+		Select("home_devices.id as link_id, devices.id as device_id, devices.uuid as device_uuid, devices.device_id as device_device_id, devices.uid as device_uid, devices.bind_type as device_bind_type, devices.secret as device_secret, devices.name as device_name, devices.first_bind_time as device_first_bind_time, devices.bind_time as device_bind_time").
+		Joins("JOIN devices ON devices.id = home_devices.device_id").
+		Where("home_devices.home_id = ? AND home_devices.deleted_at IS NULL AND devices.deleted_at IS NULL", homeID).
+		Order("home_devices.id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]HomeDeviceWithDevice, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, HomeDeviceWithDevice{
+			Link: struct {
+				ID uint
+			}{
+				ID: row.LinkID,
+			},
+			Device: struct {
+				ID            uint
+				UUID          string
+				DeviceID      string
+				UID           string
+				BindType      int
+				Secret        string
+				Name          string
+				FirstBindTime int64
+				BindTime      int64
+			}{
+				ID:            row.DeviceID,
+				UUID:          row.DeviceUUID,
+				DeviceID:      row.DeviceDeviceID,
+				UID:           row.DeviceUID,
+				BindType:      row.DeviceBindType,
+				Secret:        row.DeviceSecret,
+				Name:          row.DeviceName,
+				FirstBindTime: row.DeviceFirstBindTime,
+				BindTime:      row.DeviceBindTime,
+			},
 		})
 	}
 	return result, nil

@@ -68,6 +68,24 @@ type homeUserResponse struct {
 	Accept   int    `json:"accept"`
 }
 
+type homeDeviceStateResponse struct {
+	Desired  map[string]any `json:"desired"`
+	Reported map[string]any `json:"reported"`
+}
+
+type homeDeviceResponse struct {
+	ID            int                     `json:"id"`
+	UUID          string                  `json:"uuid"`
+	DeviceID      string                  `json:"device_id"`
+	UID           string                  `json:"uid"`
+	BindType      int                     `json:"bind_type"`
+	Secret        string                  `json:"secret"`
+	Name          string                  `json:"name"`
+	FirstBindTime int64                   `json:"first_bind_time"`
+	BindTime      int64                   `json:"bind_time"`
+	State         homeDeviceStateResponse `json:"State"`
+}
+
 func TestUserRegisterLoginFlow(t *testing.T) {
 	application := newTestApp(t)
 
@@ -696,6 +714,19 @@ func TestHomeBasicFlow(t *testing.T) {
 		t.Fatalf("home user accept = %d, want 1", homeUsers[0].Accept)
 	}
 
+	homeDevicesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices?home_id="+homeID, nil, "Bearer "+registered.AccessToken)
+	if homeDevicesResp.Code != 1000 {
+		t.Fatalf("homeDevices code = %d, want 1000", homeDevicesResp.Code)
+	}
+
+	var homeDevices []homeDeviceResponse
+	if err := json.Unmarshal(homeDevicesResp.Data, &homeDevices); err != nil {
+		t.Fatalf("unmarshal homeDevices response: %v", err)
+	}
+	if len(homeDevices) != 0 {
+		t.Fatalf("homeDevices length = %d, want 0", len(homeDevices))
+	}
+
 	updateResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeUpdate", map[string]any{
 		"home_id":  homeID,
 		"name":     "Updated Home",
@@ -738,6 +769,11 @@ func TestHomeBasicFlow(t *testing.T) {
 	homeUsersAfterDeleteResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers?home_id="+homeID, nil, "Bearer "+registered.AccessToken)
 	if homeUsersAfterDeleteResp.Code != 3001 {
 		t.Fatalf("homeUsers after delete code = %d, want 3001", homeUsersAfterDeleteResp.Code)
+	}
+
+	homeDevicesAfterDeleteResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices?home_id="+homeID, nil, "Bearer "+registered.AccessToken)
+	if homeDevicesAfterDeleteResp.Code != 3001 {
+		t.Fatalf("homeDevices after delete code = %d, want 3001", homeDevicesAfterDeleteResp.Code)
 	}
 }
 
@@ -801,9 +837,19 @@ func TestHomeFailures(t *testing.T) {
 		t.Fatalf("missing homeUsers home_id code = %d, want 2000", missingHomeUsersResp.Code)
 	}
 
+	missingHomeDevicesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices", nil, "Bearer "+registered.AccessToken)
+	if missingHomeDevicesResp.Code != 2000 {
+		t.Fatalf("missing homeDevices home_id code = %d, want 2000", missingHomeDevicesResp.Code)
+	}
+
 	notFoundHomeUsersResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers?home_id=h_missing", nil, "Bearer "+registered.AccessToken)
 	if notFoundHomeUsersResp.Code != 3001 {
 		t.Fatalf("missing homeUsers code = %d, want 3001", notFoundHomeUsersResp.Code)
+	}
+
+	notFoundHomeDevicesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices?home_id=h_missing", nil, "Bearer "+registered.AccessToken)
+	if notFoundHomeDevicesResp.Code != 3001 {
+		t.Fatalf("missing homeDevices code = %d, want 3001", notFoundHomeDevicesResp.Code)
 	}
 
 	invalidUpdateResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeUpdate", map[string]any{
@@ -817,6 +863,11 @@ func TestHomeFailures(t *testing.T) {
 	missingDeleteResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/homeDelete", nil, "Bearer "+registered.AccessToken)
 	if missingDeleteResp.Code != 2000 {
 		t.Fatalf("missing homeDelete home_id code = %d, want 2000", missingDeleteResp.Code)
+	}
+
+	unauthorizedHomeDevicesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices?home_id="+homeID, nil, "")
+	if unauthorizedHomeDevicesResp.Code != 2001 {
+		t.Fatalf("unauthorized homeDevices code = %d, want 2001", unauthorizedHomeDevicesResp.Code)
 	}
 }
 
@@ -1096,7 +1147,7 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 func cleanupTables(t *testing.T, database *gorm.DB) {
 	t.Helper()
 
-	for _, table := range []string{"home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
+	for _, table := range []string{"home_devices", "devices", "home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
 		if err := database.Exec("DELETE FROM " + table).Error; err != nil {
 			t.Fatalf("cleanup table %s: %v", table, err)
 		}

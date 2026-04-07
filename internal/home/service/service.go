@@ -48,6 +48,24 @@ type HomeUserItem struct {
 	Accept   int    `json:"accept"`
 }
 
+type DeviceState struct {
+	Desired  map[string]any `json:"desired,omitempty"`
+	Reported map[string]any `json:"reported,omitempty"`
+}
+
+type HomeDeviceItem struct {
+	ID            int         `json:"id"`
+	UUID          string      `json:"uuid"`
+	DeviceID      string      `json:"device_id"`
+	UID           string      `json:"uid"`
+	BindType      int         `json:"bind_type"`
+	Secret        string      `json:"secret"`
+	Name          string      `json:"name"`
+	FirstBindTime int64       `json:"first_bind_time"`
+	BindTime      int64       `json:"bind_time"`
+	State         DeviceState `json:"State"`
+}
+
 func New(homeRepo *homerepo.Repository, userRepo *userrepo.Repository, cfg config.Config) *Service {
 	return &Service{
 		homeRepo: homeRepo,
@@ -171,6 +189,53 @@ func (s *Service) ListHomeUsers(uid, homeID string) ([]HomeUserItem, error) {
 			Avatar:   s.avatarObjectKey(member.User.UID),
 			Role:     member.Member.Role,
 			Accept:   member.Member.Accept,
+		})
+	}
+	return result, nil
+}
+
+func (s *Service) ListHomeDevices(uid, homeID string) ([]HomeDeviceItem, error) {
+	if strings.TrimSpace(uid) == "" || strings.TrimSpace(homeID) == "" {
+		return nil, ErrInvalidInput
+	}
+
+	user, err := s.userRepo.FindUserByUID(uid)
+	if err != nil {
+		if userrepo.IsNotFound(err) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+
+	homeWithMember, err := s.homeRepo.FindHomeMembershipByHomeIDAndUserID(strings.TrimSpace(homeID), user.ID)
+	if err != nil {
+		if homerepo.IsNotFound(err) {
+			return nil, ErrHomeNotFound
+		}
+		return nil, err
+	}
+
+	devices, err := s.homeRepo.ListHomeDevicesByInternalHomeID(homeWithMember.Home.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]HomeDeviceItem, 0, len(devices))
+	for _, item := range devices {
+		result = append(result, HomeDeviceItem{
+			ID:            int(item.Link.ID),
+			UUID:          item.Device.UUID,
+			DeviceID:      item.Device.DeviceID,
+			UID:           item.Device.UID,
+			BindType:      item.Device.BindType,
+			Secret:        item.Device.Secret,
+			Name:          item.Device.Name,
+			FirstBindTime: item.Device.FirstBindTime,
+			BindTime:      item.Device.BindTime,
+			State: DeviceState{
+				Desired:  map[string]any{},
+				Reported: map[string]any{},
+			},
 		})
 	}
 	return result, nil

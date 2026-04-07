@@ -34,6 +34,7 @@ func RegisterHomeRoutes(group *gin.RouterGroup, handler *Handler, authMiddleware
 	deviceGroup.Use(authMiddleware)
 	deviceGroup.POST("/homeCreate", handler.CreateHome)
 	deviceGroup.GET("/homes", handler.ListHomes)
+	deviceGroup.GET("/homeDevices", handler.ListHomeDevices)
 	deviceGroup.GET("/homeUsers", handler.ListHomeUsers)
 	deviceGroup.POST("/homeUpdate", handler.UpdateHome)
 	deviceGroup.DELETE("/homeDelete", handler.DeleteHome)
@@ -64,6 +65,15 @@ func (h *Handler) ListHomes(c *gin.Context) {
 
 func (h *Handler) ListHomeUsers(c *gin.Context) {
 	result, err := h.service.ListHomeUsers(auth.UIDFromContext(c), c.Query("home_id"))
+	if err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, result)
+}
+
+func (h *Handler) ListHomeDevices(c *gin.Context) {
+	result, err := h.service.ListHomeDevices(auth.UIDFromContext(c), c.Query("home_id"))
 	if err != nil {
 		renderServiceError(c, err)
 		return

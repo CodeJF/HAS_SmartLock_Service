@@ -452,6 +452,31 @@ paths:
                     count: 0
                     role: 1
                     create_time: 1711857600
+  /v1/device/homeDevices:
+    get:
+      tags:
+        - Home
+      summary: 家庭设备列表
+      operationId: homeDevices
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: home_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeDevicesEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data: []
   /v1/device/homeUsers:
     get:
       tags:
@@ -918,6 +943,51 @@ components:
           type: integer
         accept:
           type: integer
+    DeviceState:
+      type: object
+      properties:
+        desired:
+          type: object
+          additionalProperties: true
+        reported:
+          type: object
+          additionalProperties: true
+    Device:
+      type: object
+      required:
+        - id
+        - uuid
+        - device_id
+        - uid
+        - bind_type
+        - secret
+        - name
+        - first_bind_time
+        - bind_time
+        - State
+      properties:
+        id:
+          type: integer
+        uuid:
+          type: string
+        device_id:
+          type: string
+        uid:
+          type: string
+        bind_type:
+          type: integer
+        secret:
+          type: string
+        name:
+          type: string
+        first_bind_time:
+          type: integer
+          format: int64
+        bind_time:
+          type: integer
+          format: int64
+        State:
+          $ref: '#/components/schemas/DeviceState'
     HomesEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'
@@ -927,6 +997,15 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/HomeItem'
+    HomeDevicesEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Device'
     HomeUsersEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'

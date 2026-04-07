@@ -527,7 +527,7 @@
   |------|------|------|
   | `uid` | `string` | 用户 ID |
   | `username` | `string?` | 用户名 |
-  | `avatar` | `string?` | 头像 URL |
+  | `avatar` | `string?` | 头像 object key，固定为 `avatar/{uid}` |
   | `role` | `int?` | 角色 |
   | `accept` | `int?` | 是否接受邀请 |
 

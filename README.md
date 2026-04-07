@@ -28,6 +28,9 @@ go run ./cmd/api
 
 - `http://localhost:8080`
 
+程序启动时会自动执行未执行的 `migrations/*.sql`，并通过 `schema_migrations` 管理数据库版本。
+当前数据库流程已收敛为 **MySQL-only + 内置 migration runner**，不再依赖 GORM `AutoMigrate`。
+
 程序启动时会自动读取仓库根目录的 `.env`。
 也支持通过 `CONFIG_FILE=/absolute/path/.env` 显式指定配置文件。
 
@@ -42,10 +45,8 @@ go run ./cmd/api
 - `APP_NAME`
 - `APP_ENV`
 - `HTTP_ADDR`
-- `DB_DRIVER`
 - `DB_DSN`
 - `MYSQL_DSN`
-- `AUTO_MIGRATE`
 - `JWT_SECRET`
 - `ACCESS_TOKEN_TTL_SECONDS`
 - `REFRESH_TOKEN_TTL_SECONDS`
@@ -67,8 +68,8 @@ go run ./cmd/api
 ```env
 APP_ENV=development
 HTTP_ADDR=:8080
-DB_DRIVER=sqlite
-DB_DSN=file:has_smartlock_service.db?_foreign_keys=on
+DB_DSN=
+MYSQL_DSN=root:password@tcp(127.0.0.1:3306)/has_smartlock_service?charset=utf8mb4&parseTime=true&loc=Local
 JWT_SECRET=dev-secret-change-me
 OSS_ENDPOINT=oss-cn-shenzhen.aliyuncs.com
 OSS_BUCKET_NAME=has-smartlock
@@ -88,6 +89,18 @@ OSS_STS_DURATION_SECONDS=900
 - 默认也会自动读取仓库根目录的 `.env`
 - 如有特殊 Run Configuration，可通过环境变量 `CONFIG_FILE` 显式指定配置文件路径
 
+## Migration 约定
+
+- 当前完整 schema 基线在 [001_init_schema.sql](/Users/jianfengxu/Desktop/HAS_SmartLock_Service/migrations/001_init_schema.sql)
+- 还未上线前，本次允许重写 `001` 以收敛当前完整 schema
+- 从本次切换完成后开始，后续所有表结构变更一律追加新 migration，不再回改 `001`
+- 新增表/字段/索引时，统一在 `migrations/` 下新增更高版本 SQL 文件
+
+## 本地开发库
+
+- 本次切换建议直接重建本地 MySQL 库，再启动程序执行 migration
+- 如果需要快速恢复联调账号，可手工执行 [seed_dev.sql](/Users/jianfengxu/Desktop/HAS_SmartLock_Service/scripts/seed_dev.sql)
+
 ## 当前接口
 
 - `GET /healthz`
@@ -100,6 +113,6 @@ OSS_STS_DURATION_SECONDS=900
 
 ## 后续方向
 
-- 补齐 MySQL 连接与 migration 方案
+- 继续推进家庭模块与设备模块
 - 继续完成用户模块剩余接口
 - 接入 refresh token、修改资料、验证码校验等能力

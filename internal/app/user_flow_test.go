@@ -2,11 +2,16 @@ package app
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
+	gosqlmysql "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 
 	"has-smartlock-service/internal/pkg/config"
@@ -44,6 +49,23 @@ type cloudTokenResponse struct {
 	RegionID        string `json:"region_id"`
 	Endpoint        string `json:"endpoint"`
 	Bucket          string `json:"bucket"`
+}
+
+type homeItemResponse struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Location   string `json:"location"`
+	Count      int    `json:"count"`
+	Role       int    `json:"role"`
+	CreateTime int64  `json:"create_time"`
+}
+
+type homeUserResponse struct {
+	UID      string `json:"uid"`
+	Username string `json:"username"`
+	Avatar   string `json:"avatar"`
+	Role     int    `json:"role"`
+	Accept   int    `json:"accept"`
 }
 
 func TestUserRegisterLoginFlow(t *testing.T) {
@@ -590,6 +612,214 @@ func TestCloudGetTokenFlow(t *testing.T) {
 	}
 }
 
+func TestHomeBasicFlow(t *testing.T) {
+	application := newTestApp(t)
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "home-owner@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "home-owner@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "home-password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	var registered tokenResponse
+	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
+		t.Fatalf("unmarshal register response: %v", err)
+	}
+
+	createResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeCreate", map[string]any{
+		"name": "My Home",
+	}, "Bearer "+registered.AccessToken)
+	if createResp.Code != 1000 {
+		t.Fatalf("homeCreate code = %d, want 1000", createResp.Code)
+	}
+
+	homesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homes", nil, "Bearer "+registered.AccessToken)
+	if homesResp.Code != 1000 {
+		t.Fatalf("homes code = %d, want 1000", homesResp.Code)
+	}
+
+	var homes []homeItemResponse
+	if err := json.Unmarshal(homesResp.Data, &homes); err != nil {
+		t.Fatalf("unmarshal homes response: %v", err)
+	}
+	if len(homes) != 1 {
+		t.Fatalf("homes length = %d, want 1", len(homes))
+	}
+	if homes[0].Name != "My Home" {
+		t.Fatalf("home name = %q, want My Home", homes[0].Name)
+	}
+	if homes[0].Count != 0 {
+		t.Fatalf("home count = %d, want 0", homes[0].Count)
+	}
+	if homes[0].Role != 1 {
+		t.Fatalf("home role = %d, want 1", homes[0].Role)
+	}
+	if homes[0].ID == "" {
+		t.Fatalf("home id should not be empty")
+	}
+	homeID := homes[0].ID
+
+	homeUsersResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers?home_id="+homes[0].ID, nil, "Bearer "+registered.AccessToken)
+	if homeUsersResp.Code != 1000 {
+		t.Fatalf("homeUsers code = %d, want 1000", homeUsersResp.Code)
+	}
+
+	var homeUsers []homeUserResponse
+	if err := json.Unmarshal(homeUsersResp.Data, &homeUsers); err != nil {
+		t.Fatalf("unmarshal homeUsers response: %v", err)
+	}
+	if len(homeUsers) != 1 {
+		t.Fatalf("homeUsers length = %d, want 1", len(homeUsers))
+	}
+	if homeUsers[0].UID != registered.UID {
+		t.Fatalf("home user uid = %q, want %q", homeUsers[0].UID, registered.UID)
+	}
+	if homeUsers[0].Avatar != "avatar/"+registered.UID {
+		t.Fatalf("home user avatar = %q, want %q", homeUsers[0].Avatar, "avatar/"+registered.UID)
+	}
+	if homeUsers[0].Role != 1 {
+		t.Fatalf("home user role = %d, want 1", homeUsers[0].Role)
+	}
+	if homeUsers[0].Accept != 1 {
+		t.Fatalf("home user accept = %d, want 1", homeUsers[0].Accept)
+	}
+
+	updateResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeUpdate", map[string]any{
+		"home_id":  homeID,
+		"name":     "Updated Home",
+		"location": "Shenzhen",
+	}, "Bearer "+registered.AccessToken)
+	if updateResp.Code != 1000 {
+		t.Fatalf("homeUpdate code = %d, want 1000", updateResp.Code)
+	}
+
+	homesAfterUpdateResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homes", nil, "Bearer "+registered.AccessToken)
+	if homesAfterUpdateResp.Code != 1000 {
+		t.Fatalf("homes after update code = %d, want 1000", homesAfterUpdateResp.Code)
+	}
+	if err := json.Unmarshal(homesAfterUpdateResp.Data, &homes); err != nil {
+		t.Fatalf("unmarshal homes after update response: %v", err)
+	}
+	if homes[0].Name != "Updated Home" {
+		t.Fatalf("updated home name = %q, want Updated Home", homes[0].Name)
+	}
+	if homes[0].Location != "Shenzhen" {
+		t.Fatalf("updated home location = %q, want Shenzhen", homes[0].Location)
+	}
+
+	deleteResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/homeDelete?home_id="+homeID, nil, "Bearer "+registered.AccessToken)
+	if deleteResp.Code != 1000 {
+		t.Fatalf("homeDelete code = %d, want 1000", deleteResp.Code)
+	}
+
+	homesAfterDeleteResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homes", nil, "Bearer "+registered.AccessToken)
+	if homesAfterDeleteResp.Code != 1000 {
+		t.Fatalf("homes after delete code = %d, want 1000", homesAfterDeleteResp.Code)
+	}
+	if err := json.Unmarshal(homesAfterDeleteResp.Data, &homes); err != nil {
+		t.Fatalf("unmarshal homes after delete response: %v", err)
+	}
+	if len(homes) != 0 {
+		t.Fatalf("homes after delete length = %d, want 0", len(homes))
+	}
+
+	homeUsersAfterDeleteResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers?home_id="+homeID, nil, "Bearer "+registered.AccessToken)
+	if homeUsersAfterDeleteResp.Code != 3001 {
+		t.Fatalf("homeUsers after delete code = %d, want 3001", homeUsersAfterDeleteResp.Code)
+	}
+}
+
+func TestHomeFailures(t *testing.T) {
+	application := newTestApp(t)
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": "home-fail@example.com",
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": "home-fail@example.com",
+		"country":  "86",
+		"code":     "123456",
+		"password": "password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	var registered tokenResponse
+	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
+		t.Fatalf("unmarshal register response: %v", err)
+	}
+
+	missingAuthCreateResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeCreate", map[string]any{
+		"name": "No Auth Home",
+	}, "")
+	if missingAuthCreateResp.Code != 2001 {
+		t.Fatalf("missing auth homeCreate code = %d, want 2001", missingAuthCreateResp.Code)
+	}
+
+	invalidCreateResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeCreate", map[string]any{}, "Bearer "+registered.AccessToken)
+	if invalidCreateResp.Code != 2000 {
+		t.Fatalf("invalid homeCreate code = %d, want 2000", invalidCreateResp.Code)
+	}
+
+	createResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeCreate", map[string]any{
+		"name": "Fail Home",
+	}, "Bearer "+registered.AccessToken)
+	if createResp.Code != 1000 {
+		t.Fatalf("homeCreate code = %d, want 1000", createResp.Code)
+	}
+
+	homesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homes", nil, "Bearer "+registered.AccessToken)
+	if homesResp.Code != 1000 {
+		t.Fatalf("homes code = %d, want 1000", homesResp.Code)
+	}
+	var homes []homeItemResponse
+	if err := json.Unmarshal(homesResp.Data, &homes); err != nil {
+		t.Fatalf("unmarshal homes response: %v", err)
+	}
+	homeID := homes[0].ID
+
+	missingHomeUsersResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers", nil, "Bearer "+registered.AccessToken)
+	if missingHomeUsersResp.Code != 2000 {
+		t.Fatalf("missing homeUsers home_id code = %d, want 2000", missingHomeUsersResp.Code)
+	}
+
+	notFoundHomeUsersResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers?home_id=h_missing", nil, "Bearer "+registered.AccessToken)
+	if notFoundHomeUsersResp.Code != 3001 {
+		t.Fatalf("missing homeUsers code = %d, want 3001", notFoundHomeUsersResp.Code)
+	}
+
+	invalidUpdateResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeUpdate", map[string]any{
+		"home_id": homeID,
+		"name":    "Only Name",
+	}, "Bearer "+registered.AccessToken)
+	if invalidUpdateResp.Code != 2000 {
+		t.Fatalf("invalid homeUpdate code = %d, want 2000", invalidUpdateResp.Code)
+	}
+
+	missingDeleteResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/homeDelete", nil, "Bearer "+registered.AccessToken)
+	if missingDeleteResp.Code != 2000 {
+		t.Fatalf("missing homeDelete home_id code = %d, want 2000", missingDeleteResp.Code)
+	}
+}
+
 func TestUserDeleteAccountFlow(t *testing.T) {
 	application := newTestApp(t)
 
@@ -780,13 +1010,12 @@ func TestDeleteAccountFailures(t *testing.T) {
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 
+	testDSN := prepareTestDatabase(t, "has_smartlock_service_test")
 	cfg := config.Config{
 		AppName:            "has-smartlock-service-test",
 		AppEnv:             "test",
 		HTTPAddr:           ":0",
-		DBDriver:           "sqlite",
-		DBDSN:              "file:user_flow_test?mode=memory&cache=shared",
-		AutoMigrate:        true,
+		DBDSN:              testDSN,
 		JWTSecret:          "test-secret",
 		AccessTokenTTL:     3600,
 		RefreshTokenTTL:    86400,
@@ -807,6 +1036,10 @@ func newTestApp(t *testing.T) *App {
 		t.Fatalf("open test db: %v", err)
 	}
 
+	if err := db.RunMigrations(database); err != nil {
+		t.Fatalf("run test migrations: %v", err)
+	}
+
 	cleanupTables(t, database)
 
 	application, err := NewWithDependencies(cfg, database)
@@ -820,13 +1053,12 @@ func newTestApp(t *testing.T) *App {
 func newExpiredCodeTestApp(t *testing.T) *App {
 	t.Helper()
 
+	testDSN := prepareTestDatabase(t, "has_smartlock_service_test_expired")
 	cfg := config.Config{
 		AppName:            "has-smartlock-service-test",
 		AppEnv:             "test",
 		HTTPAddr:           ":0",
-		DBDriver:           "sqlite",
-		DBDSN:              "file:user_flow_test_expired?mode=memory&cache=shared",
-		AutoMigrate:        true,
+		DBDSN:              testDSN,
 		JWTSecret:          "test-secret",
 		AccessTokenTTL:     3600,
 		RefreshTokenTTL:    86400,
@@ -847,6 +1079,10 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 		t.Fatalf("open expired test db: %v", err)
 	}
 
+	if err := db.RunMigrations(database); err != nil {
+		t.Fatalf("run expired test migrations: %v", err)
+	}
+
 	cleanupTables(t, database)
 
 	application, err := NewWithDependencies(cfg, database)
@@ -860,11 +1096,56 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 func cleanupTables(t *testing.T, database *gorm.DB) {
 	t.Helper()
 
-	for _, table := range []string{"user_clients", "refresh_tokens", "verification_codes", "users"} {
+	for _, table := range []string{"home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
 		if err := database.Exec("DELETE FROM " + table).Error; err != nil {
 			t.Fatalf("cleanup table %s: %v", table, err)
 		}
 	}
+}
+
+func prepareTestDatabase(t *testing.T, databaseName string) string {
+	t.Helper()
+
+	rootDSN := strings.TrimSpace(os.Getenv("TEST_MYSQL_DSN"))
+	if rootDSN == "" {
+		rootDSN = strings.TrimSpace(config.Load().DBDSN)
+	}
+	if rootDSN == "" {
+		t.Skip("TEST_MYSQL_DSN or MYSQL_DSN/DB_DSN is required for MySQL integration tests")
+	}
+
+	parsed, err := gosqlmysql.ParseDSN(rootDSN)
+	if err != nil {
+		t.Skipf("skip MySQL integration tests because configured DSN is not a valid MySQL DSN: %v", err)
+	}
+
+	adminCfg := *parsed
+	adminCfg.DBName = ""
+	adminCfg.MultiStatements = true
+	if adminCfg.Loc == nil {
+		adminCfg.Loc = time.Local
+	}
+
+	adminDB, err := sql.Open("mysql", adminCfg.FormatDSN())
+	if err != nil {
+		t.Fatalf("open mysql admin db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = adminDB.Close()
+	})
+
+	if _, err := adminDB.Exec("CREATE DATABASE IF NOT EXISTS `" + databaseName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
+		t.Fatalf("create test database: %v", err)
+	}
+
+	testCfg := *parsed
+	testCfg.DBName = databaseName
+	testCfg.MultiStatements = true
+	testCfg.ParseTime = true
+	if testCfg.Loc == nil {
+		testCfg.Loc = time.Local
+	}
+	return testCfg.FormatDSN()
 }
 
 func performJSONRequest(t *testing.T, router http.Handler, method, path string, body any, authHeader string) envelope {

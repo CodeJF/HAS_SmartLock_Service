@@ -66,3 +66,38 @@
 - 在用户模块稳定后，再推进数据库管理规范：明确 `AutoMigrate` 与正式 migration 工具的最终方案，避免长期双轨。
 - 后续进入设备、家庭、事件等模块时，继续保持“先补合同文档/OpenAPI，再实现，再补测试”的顺序。
 - 下一阶段优先级：先做家庭模块，再做设备模块。
+
+## 当前记忆（2026-04-03）
+
+- 今天已完成头像链路从预签名 URL 方案切换为 STS 临时凭证方案。
+- 今天已新增并启用 `GET /v1/cloud/getToken`，由后端调用 STS `AssumeRole` 下发临时访问凭证给 App。
+- 当前头像对象 key 规则已固定为：`avatar/{uid}`。
+- 当前 `/v1/user/info` 的 `avatar` 语义已改为乐观 object key，直接返回 `avatar/{uid}`，不再表示“后端确认已上传成功”。
+- 当前头像上传与读取不再依赖后端生成预签名上传/下载 URL，也不再依赖 `avatarUploadPrepare` / `avatarUploadConfirm`。
+- 当前 STS 临时凭证权限已收敛到当前用户自己的头像对象：`avatar/{uid}`，只允许 `oss:PutObject` 与 `oss:GetObject`。
+- 今天已完成阿里云 RAM / STS 实际联调：`/v1/cloud/getToken` 可正常返回临时凭证，且已验证能对 `avatar/{uid}` 成功执行 `PutObject` 与 `GetObject`。
+- 协作经验：用户在学习 STS、RAM、AssumeRole、对象存储签名链路时，倾向先搞清楚“权限分层”和“请求到底发给谁”；解释时应明确区分 RAM 用户、RAM 角色、AssumeRole 权限、角色基础权限、会话策略这几层。
+
+## 当前待推进（2026-04-03）
+
+- 家庭模块第一阶段已完成方案对齐，当前目标接口为：
+  - `POST /v1/device/homeCreate`
+  - `GET /v1/device/homes`
+  - `GET /v1/device/homeUsers`
+  - `POST /v1/device/homeUpdate`
+  - `DELETE /v1/device/homeDelete`
+- 家庭模块第一阶段按“单人家庭、仅拥有者可修改/删除、成员可查看”的规则设计。
+- `homeUsers` / `homes` 这类查看接口应校验“当前用户是否属于该家庭”，不是校验“是否为拥有者”。
+- `homeUpdate` / `homeDelete` 这类修改接口才需要校验“当前用户是否为拥有者”。
+- 家庭成员头像语义与用户模块保持一致，统一返回 object key：`avatar/{uid}`，不是 URL。
+- 家庭模块第一阶段落地后，下一阶段仍按既定优先级继续：先做设备模块，再考虑事件等模块。
+- 数据库管理下一步要正式切换到 migration 流程：不再长期依赖 `cfg.AutoMigrate`，而是由程序启动时执行 `migrations/*.sql`，通过 `schema_migrations` 管理版本。
+- 当前已确定数据库管理方向：MySQL-only + 仓内自研 migration runner。
+
+## 当前记忆（2026-04-07）
+
+- 今天已决定数据库管理正式切到 migration 流程，不再把 `AutoMigrate` 当长期方案使用。
+- 当前数据库方案已收敛为 MySQL-only；SQLite 仅作为历史阶段存在，不再作为正式运行与测试基线。
+- 本次切换允许直接重写 `001`，将其收敛为当前完整 schema 基线；切换完成后，后续 schema 变更一律通过新增 migration 文件推进。
+- 程序启动流程目标已明确：连接 MySQL 后自动执行未执行的 `migrations/*.sql`，并通过 `schema_migrations` 记录版本。
+- 用户当前希望尽早养成正式习惯，即使尚未上线也优先采用 migration，而不是继续长期依赖 GORM 自动建表。

@@ -8,6 +8,9 @@ import (
 
 	cloudhandler "has-smartlock-service/internal/cloud/handler"
 	cloudservice "has-smartlock-service/internal/cloud/service"
+	homehandler "has-smartlock-service/internal/home/handler"
+	homerepository "has-smartlock-service/internal/home/repository"
+	homeservice "has-smartlock-service/internal/home/service"
 	"has-smartlock-service/internal/pkg/auth"
 	"has-smartlock-service/internal/pkg/config"
 	"has-smartlock-service/internal/pkg/db"
@@ -28,6 +31,9 @@ func New() (*App, error) {
 	cfg := config.Load()
 	database, err := db.Open(cfg)
 	if err != nil {
+		return nil, err
+	}
+	if err := db.RunMigrations(database); err != nil {
 		return nil, err
 	}
 
@@ -86,11 +92,15 @@ func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) er
 	userHandler := handler.New(userService)
 	cloudService := cloudservice.New(userRepo, stsTokenClient)
 	cloudHandler := cloudhandler.New(cloudService)
+	homeRepo := homerepository.New(database)
+	homeService := homeservice.New(homeRepo, userRepo, cfg)
+	homeHandler := homehandler.New(homeService)
 
 	v1 := router.Group("/v1")
 	authMiddleware := auth.Middleware(tokenManager)
 	handler.RegisterUserRoutes(v1, userHandler, authMiddleware)
 	cloudhandler.RegisterCloudRoutes(v1, cloudHandler, authMiddleware)
+	homehandler.RegisterHomeRoutes(v1, homeHandler, authMiddleware)
 	return nil
 }
 

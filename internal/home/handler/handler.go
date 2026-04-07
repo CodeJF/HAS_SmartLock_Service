@@ -1,0 +1,113 @@
+package handler
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"has-smartlock-service/internal/home/service"
+	"has-smartlock-service/internal/pkg/auth"
+	"has-smartlock-service/internal/pkg/httpx"
+)
+
+type Handler struct {
+	service *service.Service
+}
+
+type homeCreateRequest struct {
+	Name string `json:"name"`
+}
+
+type homeUpdateRequest struct {
+	HomeID   string `json:"home_id"`
+	Name     string `json:"name"`
+	Location string `json:"location"`
+}
+
+func New(service *service.Service) *Handler {
+	return &Handler{service: service}
+}
+
+func RegisterHomeRoutes(group *gin.RouterGroup, handler *Handler, authMiddleware gin.HandlerFunc) {
+	deviceGroup := group.Group("/device")
+	deviceGroup.Use(authMiddleware)
+	deviceGroup.POST("/homeCreate", handler.CreateHome)
+	deviceGroup.GET("/homes", handler.ListHomes)
+	deviceGroup.GET("/homeUsers", handler.ListHomeUsers)
+	deviceGroup.POST("/homeUpdate", handler.UpdateHome)
+	deviceGroup.DELETE("/homeDelete", handler.DeleteHome)
+}
+
+func (h *Handler) CreateHome(c *gin.Context) {
+	var req homeCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.CreateHome(auth.UIDFromContext(c), req.Name); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) ListHomes(c *gin.Context) {
+	result, err := h.service.ListHomes(auth.UIDFromContext(c))
+	if err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, result)
+}
+
+func (h *Handler) ListHomeUsers(c *gin.Context) {
+	result, err := h.service.ListHomeUsers(auth.UIDFromContext(c), c.Query("home_id"))
+	if err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, result)
+}
+
+func (h *Handler) UpdateHome(c *gin.Context) {
+	var req homeUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.UpdateHome(auth.UIDFromContext(c), req.HomeID, req.Name, req.Location); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) DeleteHome(c *gin.Context) {
+	if err := h.service.DeleteHome(auth.UIDFromContext(c), c.Query("home_id")); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func renderServiceError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrInvalidInput):
+		httpx.Fail(c, 2000, "invalid input", nil)
+	case errors.Is(err, service.ErrUserNotFound):
+		httpx.Fail(c, 2003, "user not found", nil)
+	case errors.Is(err, service.ErrHomeNotFound):
+		httpx.Fail(c, 3001, "home not found", nil)
+	case errors.Is(err, service.ErrHomeForbidden):
+		httpx.Fail(c, 3002, "home forbidden", nil)
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 5000,
+			"msg":  err.Error(),
+			"data": nil,
+		})
+	}
+}

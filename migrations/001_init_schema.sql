@@ -57,3 +57,34 @@ CREATE TABLE IF NOT EXISTS user_clients (
     INDEX idx_user_clients_user_id (user_id),
     CONSTRAINT fk_user_clients_user_id FOREIGN KEY (user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS homes (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    home_id VARCHAR(64) NOT NULL UNIQUE,
+    owner_user_id BIGINT UNSIGNED NOT NULL,
+    name VARCHAR(191) NOT NULL,
+    location VARCHAR(255) NULL,
+    create_time BIGINT NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    deleted_at DATETIME(3) NULL,
+    INDEX idx_homes_owner_user_id (owner_user_id),
+    INDEX idx_homes_deleted_at (deleted_at),
+    CONSTRAINT fk_homes_owner_user_id FOREIGN KEY (owner_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS home_members (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    home_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NOT NULL,
+    role INT NOT NULL DEFAULT 1,
+    accept INT NOT NULL DEFAULT 1,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    deleted_at DATETIME(3) NULL,
+    INDEX idx_home_members_home_id (home_id),
+    INDEX idx_home_members_user_id (user_id),
+    INDEX idx_home_members_deleted_at (deleted_at),
+    CONSTRAINT fk_home_members_home_id FOREIGN KEY (home_id) REFERENCES homes(id),
+    CONSTRAINT fk_home_members_user_id FOREIGN KEY (user_id) REFERENCES users(id)
+);

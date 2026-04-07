@@ -12,6 +12,7 @@ tags:
   - name: System
   - name: User
   - name: Cloud
+  - name: Home
 paths:
   /healthz:
     get:
@@ -403,6 +404,130 @@ paths:
                   region_id: cn-shenzhen
                   endpoint: oss-cn-shenzhen.aliyuncs.com
                   bucket: has-smartlock
+  /v1/device/homeCreate:
+    post:
+      tags:
+        - Home
+      summary: 创建家庭
+      operationId: homeCreate
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HomeCreateRequest'
+            example:
+              name: My Home
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/homes:
+    get:
+      tags:
+        - Home
+      summary: 家庭列表
+      operationId: homes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomesEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  - id: h_123456789
+                    name: My Home
+                    location: Shenzhen
+                    count: 0
+                    role: 1
+                    create_time: 1711857600
+  /v1/device/homeUsers:
+    get:
+      tags:
+        - Home
+      summary: 家庭用户列表
+      operationId: homeUsers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: home_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeUsersEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  - uid: u_123456789
+                    username: demo@example.com
+                    avatar: avatar/u_123456789
+                    role: 1
+                    accept: 1
+  /v1/device/homeUpdate:
+    post:
+      tags:
+        - Home
+      summary: 更新家庭信息
+      operationId: homeUpdate
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HomeUpdateRequest'
+            example:
+              home_id: h_123456789
+              name: Updated Home
+              location: Shenzhen
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/homeDelete:
+    delete:
+      tags:
+        - Home
+      summary: 删除家庭
+      operationId: homeDelete
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: home_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
   /v1/user/deleteSend:
     post:
       tags:
@@ -644,6 +769,26 @@ components:
           type: string
         code:
           type: string
+    HomeCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+    HomeUpdateRequest:
+      type: object
+      required:
+        - home_id
+        - name
+        - location
+      properties:
+        home_id:
+          type: string
+        name:
+          type: string
+        location:
+          type: string
     TokenData:
       type: object
       required:
@@ -731,3 +876,63 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/CloudTokenData'
+    HomeItem:
+      type: object
+      required:
+        - id
+        - name
+        - location
+        - count
+        - role
+        - create_time
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        location:
+          type: string
+        count:
+          type: integer
+        role:
+          type: integer
+        create_time:
+          type: integer
+          format: int64
+    HomeUser:
+      type: object
+      required:
+        - uid
+        - username
+        - avatar
+        - role
+        - accept
+      properties:
+        uid:
+          type: string
+        username:
+          type: string
+        avatar:
+          type: string
+        role:
+          type: integer
+        accept:
+          type: integer
+    HomesEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/HomeItem'
+    HomeUsersEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/HomeUser'

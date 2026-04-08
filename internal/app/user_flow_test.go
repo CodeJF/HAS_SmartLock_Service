@@ -1221,8 +1221,8 @@ func TestDeviceBindAndLoginFlow(t *testing.T) {
 	}
 
 	loginResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/login", map[string]any{
-		"zone": "8.00",
-		"a":    true,
+		"zone":    "8.00",
+		"version": "SL100_BP_1.01.10",
 	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "bind-uuid-1", "uid": registered.UID}})
 	if loginResp.Code != 1000 {
 		t.Fatalf("device login code = %d, want 1000", loginResp.Code)
@@ -1324,8 +1324,8 @@ func TestDeviceFailures(t *testing.T) {
 	}
 
 	loginMissingDeviceResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/login", map[string]any{
-		"zone": "8.00",
-		"a":    true,
+		"zone":    "8.00",
+		"version": "SL100_BP_1.01.10",
 	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "missing-device", "uid": registered.UID}})
 	if loginMissingDeviceResp.Code != 4001 {
 		t.Fatalf("device login missing device code = %d, want 4001", loginMissingDeviceResp.Code)
@@ -1342,8 +1342,8 @@ func TestDeviceFailures(t *testing.T) {
 	}
 
 	loginForbiddenResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/login", map[string]any{
-		"zone": "8.00",
-		"a":    true,
+		"zone":    "8.00",
+		"version": "SL100_BP_1.01.10",
 	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "login-forbidden-device", "uid": other.UID}})
 	if loginForbiddenResp.Code != 4002 {
 		t.Fatalf("device login forbidden code = %d, want 4002", loginForbiddenResp.Code)

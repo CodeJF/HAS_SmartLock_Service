@@ -663,7 +663,7 @@ paths:
               $ref: '#/components/schemas/DeviceLoginRequest'
             example:
               zone: '{{zone}}'
-              a: true
+              version: '{{firmware_version}}'
       responses:
         '200':
           description: 成功
@@ -1312,12 +1312,12 @@ components:
       type: object
       required:
         - zone
-        - a
+        - version
       properties:
         zone:
           type: string
-        a:
-          type: boolean
+        version:
+          type: string
     TokenData:
       type: object
       required:

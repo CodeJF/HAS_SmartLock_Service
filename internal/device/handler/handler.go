@@ -28,8 +28,8 @@ type bindRequest struct {
 }
 
 type loginRequest struct {
-	Zone string `json:"zone"`
-	A    *bool  `json:"a"`
+	Zone    string `json:"zone"`
+	Version string `json:"version"`
 }
 
 func New(service *service.Service) *Handler {
@@ -77,17 +77,13 @@ func (h *Handler) Login(c *gin.Context) {
 		httpx.Fail(c, 2000, "invalid request body", nil)
 		return
 	}
-	if req.A == nil {
-		httpx.Fail(c, 2000, "invalid request body", nil)
-		return
-	}
 
 	if err := h.service.DeviceLogin(service.DeviceLoginInput{
-		Model: c.GetHeader("model"),
-		UUID:  c.GetHeader("uuid"),
-		UID:   c.GetHeader("uid"),
-		Zone:  req.Zone,
-		A:     *req.A,
+		Model:   c.GetHeader("model"),
+		UUID:    c.GetHeader("uuid"),
+		UID:     c.GetHeader("uid"),
+		Zone:    req.Zone,
+		Version: req.Version,
 	}); err != nil {
 		renderServiceError(c, err)
 		return

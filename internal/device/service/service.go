@@ -63,11 +63,11 @@ type BindInput struct {
 }
 
 type DeviceLoginInput struct {
-	Model string
-	UUID  string
-	UID   string
-	Zone  string
-	A     bool
+	Model   string
+	UUID    string
+	UID     string
+	Zone    string
+	Version string
 }
 
 type Service struct {
@@ -140,7 +140,8 @@ func (s *Service) DeviceLogin(input DeviceLoginInput) error {
 	if strings.TrimSpace(input.Model) == "" ||
 		strings.TrimSpace(input.UUID) == "" ||
 		strings.TrimSpace(input.UID) == "" ||
-		strings.TrimSpace(input.Zone) == "" {
+		strings.TrimSpace(input.Zone) == "" ||
+		strings.TrimSpace(input.Version) == "" {
 		return ErrInvalidInput
 	}
 

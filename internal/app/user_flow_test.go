@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +15,12 @@ import (
 	gosqlmysql "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 
+	devicemodel "has-smartlock-service/internal/device/model"
+	homemodel "has-smartlock-service/internal/home/model"
 	"has-smartlock-service/internal/pkg/config"
 	"has-smartlock-service/internal/pkg/db"
-	"has-smartlock-service/internal/user/model"
+	"has-smartlock-service/internal/pkg/protocol"
+	usermodel "has-smartlock-service/internal/user/model"
 )
 
 type envelope struct {
@@ -84,6 +88,27 @@ type homeDeviceResponse struct {
 	FirstBindTime int64                   `json:"first_bind_time"`
 	BindTime      int64                   `json:"bind_time"`
 	State         homeDeviceStateResponse `json:"State"`
+}
+
+type newDeviceResponse struct {
+	UUID          string `json:"uuid"`
+	DeviceID      string `json:"device_id"`
+	UID           string `json:"uid"`
+	BindType      int    `json:"bind_type"`
+	Secret        string `json:"secret"`
+	Name          string `json:"name"`
+	BindStatus    int    `json:"bind_status"`
+	FirstBindTime int64  `json:"first_bind_time"`
+	BindTime      int64  `json:"bind_time"`
+	DeleteTime    int64  `json:"delete_time"`
+}
+
+type requestOptions struct {
+	AccessToken       string
+	SkipUserHeaders   bool
+	SkipDeviceHeaders bool
+	HeaderOverrides   map[string]string
+	Timestamp         int64
 }
 
 func TestUserRegisterLoginFlow(t *testing.T) {
@@ -557,6 +582,36 @@ func TestAuthorizedProfileFailures(t *testing.T) {
 	missingAuthGetTokenResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/cloud/getToken?uuid=device-1", nil, "")
 	if missingAuthGetTokenResp.Code != 2001 {
 		t.Fatalf("missing auth getToken code = %d, want 2001", missingAuthGetTokenResp.Code)
+	}
+
+	missingSignResp := performJSONRequestWithOptions(t, application.router, http.MethodPost, "/v1/user/login", map[string]any{
+		"username":    "authfail@example.com",
+		"type":        "password",
+		"password":    "password",
+		"phone_brand": "iPhone",
+	}, requestOptions{SkipUserHeaders: true})
+	if missingSignResp.Code != 2000 {
+		t.Fatalf("missing sign code = %d, want 2000", missingSignResp.Code)
+	}
+
+	invalidSignResp := performJSONRequestWithOptions(t, application.router, http.MethodPost, "/v1/user/login", map[string]any{
+		"username":    "authfail@example.com",
+		"type":        "password",
+		"password":    "password",
+		"phone_brand": "iPhone",
+	}, requestOptions{HeaderOverrides: map[string]string{"sign": "invalid-sign"}})
+	if invalidSignResp.Code != 2000 {
+		t.Fatalf("invalid sign code = %d, want 2000", invalidSignResp.Code)
+	}
+
+	expiredTimestampResp := performJSONRequestWithOptions(t, application.router, http.MethodPost, "/v1/user/login", map[string]any{
+		"username":    "authfail@example.com",
+		"type":        "password",
+		"password":    "password",
+		"phone_brand": "iPhone",
+	}, requestOptions{Timestamp: time.Now().Add(-10 * time.Minute).Unix()})
+	if expiredTimestampResp.Code != 1004 {
+		t.Fatalf("expired timestamp code = %d, want 1004", expiredTimestampResp.Code)
 	}
 }
 
@@ -1058,28 +1113,268 @@ func TestDeleteAccountFailures(t *testing.T) {
 	}
 }
 
+func TestDeviceBasicFlow(t *testing.T) {
+	application := newTestApp(t)
+	registered := registerUserForTest(t, application, "device-owner@example.com")
+
+	homeID := createHomeForTest(t, application, registered.AccessToken, "Device Home")
+	insertOwnedDeviceForTest(t, application, homeID, registered.UID, "dev-uuid-1", "device-001", "Front Door")
+
+	listResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/list", nil, "Bearer "+registered.AccessToken)
+	if listResp.Code != 1000 {
+		t.Fatalf("device list code = %d, want 1000", listResp.Code)
+	}
+
+	var devices []homeDeviceResponse
+	if err := json.Unmarshal(listResp.Data, &devices); err != nil {
+		t.Fatalf("unmarshal device list response: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("device list length = %d, want 1", len(devices))
+	}
+	if devices[0].UUID != "dev-uuid-1" {
+		t.Fatalf("device uuid = %q, want dev-uuid-1", devices[0].UUID)
+	}
+	if devices[0].Name != "Front Door" {
+		t.Fatalf("device name = %q, want Front Door", devices[0].Name)
+	}
+	if devices[0].State.Desired == nil || devices[0].State.Reported == nil {
+		t.Fatalf("device state should contain empty objects")
+	}
+
+	homeListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/list?home_id="+homeID, nil, "Bearer "+registered.AccessToken)
+	if homeListResp.Code != 1000 {
+		t.Fatalf("device list by home code = %d, want 1000", homeListResp.Code)
+	}
+	if err := json.Unmarshal(homeListResp.Data, &devices); err != nil {
+		t.Fatalf("unmarshal device list by home response: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("device list by home length = %d, want 1", len(devices))
+	}
+
+	newListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/newList", nil, "Bearer "+registered.AccessToken)
+	if newListResp.Code != 1000 {
+		t.Fatalf("newList code = %d, want 1000", newListResp.Code)
+	}
+
+	var newDevices []newDeviceResponse
+	if err := json.Unmarshal(newListResp.Data, &newDevices); err != nil {
+		t.Fatalf("unmarshal newList response: %v", err)
+	}
+	if len(newDevices) != 1 {
+		t.Fatalf("newList length = %d, want 1", len(newDevices))
+	}
+	if newDevices[0].BindStatus != 1 {
+		t.Fatalf("newList bind_status = %d, want 1", newDevices[0].BindStatus)
+	}
+	if newDevices[0].DeleteTime != 0 {
+		t.Fatalf("newList delete_time = %d, want 0", newDevices[0].DeleteTime)
+	}
+
+	upNameResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/upName", map[string]any{
+		"uuid": "dev-uuid-1",
+		"name": "Back Door",
+	}, "Bearer "+registered.AccessToken)
+	if upNameResp.Code != 1000 {
+		t.Fatalf("upName code = %d, want 1000", upNameResp.Code)
+	}
+
+	listAfterRenameResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/list", nil, "Bearer "+registered.AccessToken)
+	if listAfterRenameResp.Code != 1000 {
+		t.Fatalf("device list after rename code = %d, want 1000", listAfterRenameResp.Code)
+	}
+	if err := json.Unmarshal(listAfterRenameResp.Data, &devices); err != nil {
+		t.Fatalf("unmarshal device list after rename response: %v", err)
+	}
+	if devices[0].Name != "Back Door" {
+		t.Fatalf("device name after rename = %q, want Back Door", devices[0].Name)
+	}
+
+	homeDevicesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices?home_id="+homeID, nil, "Bearer "+registered.AccessToken)
+	if homeDevicesResp.Code != 1000 {
+		t.Fatalf("homeDevices after insert code = %d, want 1000", homeDevicesResp.Code)
+	}
+	if err := json.Unmarshal(homeDevicesResp.Data, &devices); err != nil {
+		t.Fatalf("unmarshal homeDevices after insert response: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("homeDevices after insert length = %d, want 1", len(devices))
+	}
+	if devices[0].Name != "Back Door" {
+		t.Fatalf("homeDevices device name = %q, want Back Door", devices[0].Name)
+	}
+}
+
+func TestDeviceBindAndLoginFlow(t *testing.T) {
+	application := newTestApp(t)
+	registered := registerUserForTest(t, application, "device-bind@example.com")
+
+	bindResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/bind", map[string]any{
+		"uid":     registered.UID,
+		"mac":     "AA:BB:CC:DD:EE:FF",
+		"zone":    "8.00",
+		"version": "1.0.0",
+	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "bind-uuid-1"}})
+	if bindResp.Code != 1000 {
+		t.Fatalf("device bind code = %d, want 1000", bindResp.Code)
+	}
+
+	loginResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/login", map[string]any{
+		"zone": "8.00",
+		"a":    true,
+	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "bind-uuid-1", "uid": registered.UID}})
+	if loginResp.Code != 1000 {
+		t.Fatalf("device login code = %d, want 1000", loginResp.Code)
+	}
+
+	newListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/newList", nil, "Bearer "+registered.AccessToken)
+	if newListResp.Code != 1000 {
+		t.Fatalf("newList after bind code = %d, want 1000", newListResp.Code)
+	}
+
+	var devices []newDeviceResponse
+	if err := json.Unmarshal(newListResp.Data, &devices); err != nil {
+		t.Fatalf("unmarshal newList after bind response: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("newList after bind length = %d, want 1", len(devices))
+	}
+	if devices[0].UUID != "bind-uuid-1" {
+		t.Fatalf("newList uuid = %q, want bind-uuid-1", devices[0].UUID)
+	}
+}
+
+func TestDeviceFailures(t *testing.T) {
+	application := newTestApp(t)
+	registered := registerUserForTest(t, application, "device-fail@example.com")
+	other := registerUserForTest(t, application, "device-other@example.com")
+
+	homeID := createHomeForTest(t, application, registered.AccessToken, "Owner Home")
+	insertOwnedDeviceForTest(t, application, homeID, registered.UID, "dev-uuid-fail", "device-fail-001", "Device Fail")
+
+	missingHomeListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/list?home_id=h_missing", nil, "Bearer "+registered.AccessToken)
+	if missingHomeListResp.Code != 3001 {
+		t.Fatalf("device list missing home code = %d, want 3001", missingHomeListResp.Code)
+	}
+
+	unauthorizedListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/list", nil, "")
+	if unauthorizedListResp.Code != 2001 {
+		t.Fatalf("unauthorized device list code = %d, want 2001", unauthorizedListResp.Code)
+	}
+
+	emptyNewListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/newList", nil, "Bearer "+other.AccessToken)
+	if emptyNewListResp.Code != 1000 {
+		t.Fatalf("empty newList code = %d, want 1000", emptyNewListResp.Code)
+	}
+	var newDevices []newDeviceResponse
+	if err := json.Unmarshal(emptyNewListResp.Data, &newDevices); err != nil {
+		t.Fatalf("unmarshal empty newList response: %v", err)
+	}
+	if len(newDevices) != 0 {
+		t.Fatalf("empty newList length = %d, want 0", len(newDevices))
+	}
+
+	invalidUpNameResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/upName", map[string]any{
+		"uuid": "dev-uuid-fail",
+	}, "Bearer "+registered.AccessToken)
+	if invalidUpNameResp.Code != 2000 {
+		t.Fatalf("invalid upName code = %d, want 2000", invalidUpNameResp.Code)
+	}
+
+	missingDeviceUpNameResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/upName", map[string]any{
+		"uuid": "dev-missing",
+		"name": "Missing",
+	}, "Bearer "+registered.AccessToken)
+	if missingDeviceUpNameResp.Code != 4001 {
+		t.Fatalf("missing device upName code = %d, want 4001", missingDeviceUpNameResp.Code)
+	}
+
+	forbiddenUpNameResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/upName", map[string]any{
+		"uuid": "dev-uuid-fail",
+		"name": "Other Name",
+	}, "Bearer "+other.AccessToken)
+	if forbiddenUpNameResp.Code != 4002 {
+		t.Fatalf("forbidden upName code = %d, want 4002", forbiddenUpNameResp.Code)
+	}
+
+	forbiddenHomeListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/list?home_id="+homeID, nil, "Bearer "+other.AccessToken)
+	if forbiddenHomeListResp.Code != 3001 {
+		t.Fatalf("forbidden home-scoped device list code = %d, want 3001", forbiddenHomeListResp.Code)
+	}
+
+	bindInvalidSignResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/bind", map[string]any{
+		"uid":     registered.UID,
+		"mac":     "AA:BB:CC:DD:EE:11",
+		"zone":    "8.00",
+		"version": "1.0.0",
+	}, requestOptions{HeaderOverrides: map[string]string{"sign": "bad-sign"}})
+	if bindInvalidSignResp.Code != 2000 {
+		t.Fatalf("device bind invalid sign code = %d, want 2000", bindInvalidSignResp.Code)
+	}
+
+	bindMissingHeaderResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/bind", map[string]any{
+		"uid":     registered.UID,
+		"mac":     "AA:BB:CC:DD:EE:12",
+		"zone":    "8.00",
+		"version": "1.0.0",
+	}, requestOptions{HeaderOverrides: map[string]string{"appid": ""}})
+	if bindMissingHeaderResp.Code != 2000 {
+		t.Fatalf("device bind missing header code = %d, want 2000", bindMissingHeaderResp.Code)
+	}
+
+	loginMissingDeviceResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/login", map[string]any{
+		"zone": "8.00",
+		"a":    true,
+	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "missing-device", "uid": registered.UID}})
+	if loginMissingDeviceResp.Code != 4001 {
+		t.Fatalf("device login missing device code = %d, want 4001", loginMissingDeviceResp.Code)
+	}
+
+	bindResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/bind", map[string]any{
+		"uid":     registered.UID,
+		"mac":     "AA:BB:CC:DD:EE:13",
+		"zone":    "8.00",
+		"version": "1.0.0",
+	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "login-forbidden-device"}})
+	if bindResp.Code != 1000 {
+		t.Fatalf("device bind setup code = %d, want 1000", bindResp.Code)
+	}
+
+	loginForbiddenResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/login", map[string]any{
+		"zone": "8.00",
+		"a":    true,
+	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "login-forbidden-device", "uid": other.UID}})
+	if loginForbiddenResp.Code != 4002 {
+		t.Fatalf("device login forbidden code = %d, want 4002", loginForbiddenResp.Code)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 
 	testDSN := prepareTestDatabase(t, "has_smartlock_service_test")
 	cfg := config.Config{
-		AppName:            "has-smartlock-service-test",
-		AppEnv:             "test",
-		HTTPAddr:           ":0",
-		DBDSN:              testDSN,
-		JWTSecret:          "test-secret",
-		AccessTokenTTL:     3600,
-		RefreshTokenTTL:    86400,
-		VerificationTTL:    300,
-		OSSEndpoint:        "oss-cn-shenzhen.aliyuncs.com",
-		OSSBucketName:      "has-smartlock",
-		OSSPublicBaseURL:   "https://has-smartlock.cn-shenzhen.taihangpkx.cn",
-		OSSAccessKeyID:     "test-ak",
-		OSSAccessKeySecret: "test-sk",
-		OSSAvatarPrefix:    "avatar",
-		OSSUploadURLTTL:    900,
-		OSSSTSRoleARN:      "acs:ram::1234567890123456:role/test-role",
-		OSSSTSDuration:     900,
+		AppName:               "has-smartlock-service-test",
+		AppEnv:                "test",
+		HTTPAddr:              ":0",
+		DBDSN:                 testDSN,
+		JWTSecret:             "test-secret",
+		AccessTokenTTL:        3600,
+		RefreshTokenTTL:       86400,
+		VerificationTTL:       300,
+		AppSecretKey:          "test-app-secret",
+		DeviceModelSecretsRaw: `{"SL100":"device-model-secret"}`,
+		SignTimestampSkew:     300,
+		OSSEndpoint:           "oss-cn-shenzhen.aliyuncs.com",
+		OSSBucketName:         "has-smartlock",
+		OSSPublicBaseURL:      "https://has-smartlock.cn-shenzhen.taihangpkx.cn",
+		OSSAccessKeyID:        "test-ak",
+		OSSAccessKeySecret:    "test-sk",
+		OSSAvatarPrefix:       "avatar",
+		OSSUploadURLTTL:       900,
+		OSSSTSRoleARN:         "acs:ram::1234567890123456:role/test-role",
+		OSSSTSDuration:        900,
 	}
 
 	database, err := db.Open(cfg)
@@ -1106,23 +1401,26 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 
 	testDSN := prepareTestDatabase(t, "has_smartlock_service_test_expired")
 	cfg := config.Config{
-		AppName:            "has-smartlock-service-test",
-		AppEnv:             "test",
-		HTTPAddr:           ":0",
-		DBDSN:              testDSN,
-		JWTSecret:          "test-secret",
-		AccessTokenTTL:     3600,
-		RefreshTokenTTL:    86400,
-		VerificationTTL:    -1,
-		OSSEndpoint:        "oss-cn-shenzhen.aliyuncs.com",
-		OSSBucketName:      "has-smartlock",
-		OSSPublicBaseURL:   "https://has-smartlock.cn-shenzhen.taihangpkx.cn",
-		OSSAccessKeyID:     "test-ak",
-		OSSAccessKeySecret: "test-sk",
-		OSSAvatarPrefix:    "avatar",
-		OSSUploadURLTTL:    900,
-		OSSSTSRoleARN:      "acs:ram::1234567890123456:role/test-role",
-		OSSSTSDuration:     900,
+		AppName:               "has-smartlock-service-test",
+		AppEnv:                "test",
+		HTTPAddr:              ":0",
+		DBDSN:                 testDSN,
+		JWTSecret:             "test-secret",
+		AccessTokenTTL:        3600,
+		RefreshTokenTTL:       86400,
+		VerificationTTL:       -1,
+		AppSecretKey:          "test-app-secret",
+		DeviceModelSecretsRaw: `{"SL100":"device-model-secret"}`,
+		SignTimestampSkew:     300,
+		OSSEndpoint:           "oss-cn-shenzhen.aliyuncs.com",
+		OSSBucketName:         "has-smartlock",
+		OSSPublicBaseURL:      "https://has-smartlock.cn-shenzhen.taihangpkx.cn",
+		OSSAccessKeyID:        "test-ak",
+		OSSAccessKeySecret:    "test-sk",
+		OSSAvatarPrefix:       "avatar",
+		OSSUploadURLTTL:       900,
+		OSSSTSRoleARN:         "acs:ram::1234567890123456:role/test-role",
+		OSSSTSDuration:        900,
 	}
 
 	database, err := db.Open(cfg)
@@ -1200,6 +1498,16 @@ func prepareTestDatabase(t *testing.T, databaseName string) string {
 }
 
 func performJSONRequest(t *testing.T, router http.Handler, method, path string, body any, authHeader string) envelope {
+	options := requestOptions{}
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		options.AccessToken = strings.TrimPrefix(authHeader, "Bearer ")
+	} else {
+		options.AccessToken = authHeader
+	}
+	return performJSONRequestWithOptions(t, router, method, path, body, options)
+}
+
+func performJSONRequestWithOptions(t *testing.T, router http.Handler, method, path string, body any, options requestOptions) envelope {
 	t.Helper()
 
 	var payload []byte
@@ -1215,8 +1523,40 @@ func performJSONRequest(t *testing.T, router http.Handler, method, path string, 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if authHeader != "" {
-		req.Header.Set("Authorization", authHeader)
+	if !options.SkipUserHeaders {
+		timestamp := options.Timestamp
+		if timestamp == 0 {
+			timestamp = time.Now().Unix()
+		}
+		requestID := "req-test-id"
+		queryOrBody := map[string]any{}
+		switch method {
+		case http.MethodGet, http.MethodDelete:
+			for key, values := range req.URL.Query() {
+				if len(values) > 0 {
+					queryOrBody[key] = values[0]
+				}
+			}
+		default:
+			params, err := protocol.ParseJSONBodyToMap(payload)
+			if err != nil {
+				t.Fatalf("parse body for sign: %v", err)
+			}
+			queryOrBody = params
+		}
+
+		req.Header.Set("appid", "test-app")
+		req.Header.Set("app_version", "1.0.0")
+		req.Header.Set("phone_code", "86")
+		req.Header.Set("timestamp", strconv.FormatInt(timestamp, 10))
+		req.Header.Set("request_id", requestID)
+		req.Header.Set("sign", protocol.BuildUserSignature(method, options.AccessToken, "1.0.0", "test-app", "86", requestID, strconv.FormatInt(timestamp, 10), queryOrBody, "test-app-secret"))
+	}
+	if options.AccessToken != "" {
+		req.Header.Set("access_token", options.AccessToken)
+	}
+	for key, value := range options.HeaderOverrides {
+		req.Header.Set(key, value)
 	}
 
 	recorder := httptest.NewRecorder()
@@ -1230,10 +1570,80 @@ func performJSONRequest(t *testing.T, router http.Handler, method, path string, 
 	return response
 }
 
+func performDeviceJSONRequest(t *testing.T, router http.Handler, method, path string, body any, options requestOptions) envelope {
+	t.Helper()
+
+	var payload []byte
+	var err error
+	if body != nil {
+		payload, err = json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal device request body: %v", err)
+		}
+	}
+
+	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+
+	timestamp := options.Timestamp
+	if timestamp == 0 {
+		timestamp = time.Now().Unix()
+	}
+	requestID := "device-req-id"
+	params, err := protocol.ParseJSONBodyToMap(payload)
+	if err != nil {
+		t.Fatalf("parse device body for sign: %v", err)
+	}
+
+	model := "SL100"
+	uuid := "device-test-uuid"
+	if value, ok := options.HeaderOverrides["model"]; ok && value != "" {
+		model = value
+	}
+	if value, ok := options.HeaderOverrides["uuid"]; ok && value != "" {
+		uuid = value
+	}
+	if value, ok := options.HeaderOverrides["request_id"]; ok && value != "" {
+		requestID = value
+	}
+	req.Header.Set("model", model)
+	req.Header.Set("uuid", uuid)
+	req.Header.Set("timestamp", strconv.FormatInt(timestamp, 10))
+	req.Header.Set("request_id", requestID)
+	if strings.Contains(path, "/bind") {
+		appID := "test-app"
+		if value, ok := options.HeaderOverrides["appid"]; ok && value != "" {
+			appID = value
+		}
+		req.Header.Set("appid", appID)
+	} else {
+		uid := "u_placeholder"
+		if value, ok := options.HeaderOverrides["uid"]; ok && value != "" {
+			uid = value
+		}
+		req.Header.Set("uid", uid)
+	}
+	sign := protocol.BuildDeviceSignature(method, model, requestID, strconv.FormatInt(timestamp, 10), uuid, params, "device-model-secret")
+	req.Header.Set("sign", sign)
+
+	for key, value := range options.HeaderOverrides {
+		req.Header.Set(key, value)
+	}
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+
+	var response envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal device response body: %v; body=%s", err, recorder.Body.String())
+	}
+	return response
+}
+
 func assertUserClientSaved(t *testing.T, application *App, pushToken, brand, version, language, zone string) {
 	t.Helper()
 
-	var client model.UserClient
+	var client usermodel.UserClient
 	err := application.DB().Where("push_token = ?", pushToken).First(&client).Error
 	if err != nil {
 		t.Fatalf("find user client: %v", err)
@@ -1249,5 +1659,91 @@ func assertUserClientSaved(t *testing.T, application *App, pushToken, brand, ver
 	}
 	if client.Zone != zone {
 		t.Fatalf("client zone = %q, want %q", client.Zone, zone)
+	}
+}
+
+func registerUserForTest(t *testing.T, application *App, username string) tokenResponse {
+	t.Helper()
+
+	registerSendResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/registerSend", map[string]any{
+		"username": username,
+		"country":  "86",
+	}, "")
+	if registerSendResp.Code != 1000 {
+		t.Fatalf("registerSend code = %d, want 1000", registerSendResp.Code)
+	}
+
+	registerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/user/register", map[string]any{
+		"username": username,
+		"country":  "86",
+		"code":     "123456",
+		"password": "password",
+	}, "")
+	if registerResp.Code != 1000 {
+		t.Fatalf("register code = %d, want 1000", registerResp.Code)
+	}
+
+	var registered tokenResponse
+	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
+		t.Fatalf("unmarshal register response: %v", err)
+	}
+
+	return registered
+}
+
+func createHomeForTest(t *testing.T, application *App, accessToken, name string) string {
+	t.Helper()
+
+	createResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeCreate", map[string]any{
+		"name": name,
+	}, "Bearer "+accessToken)
+	if createResp.Code != 1000 {
+		t.Fatalf("homeCreate code = %d, want 1000", createResp.Code)
+	}
+
+	homesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homes", nil, "Bearer "+accessToken)
+	if homesResp.Code != 1000 {
+		t.Fatalf("homes code = %d, want 1000", homesResp.Code)
+	}
+
+	var homes []homeItemResponse
+	if err := json.Unmarshal(homesResp.Data, &homes); err != nil {
+		t.Fatalf("unmarshal homes response: %v", err)
+	}
+	if len(homes) == 0 {
+		t.Fatalf("expected at least one home")
+	}
+
+	return homes[0].ID
+}
+
+func insertOwnedDeviceForTest(t *testing.T, application *App, homeBusinessID, uid, uuid, deviceID, name string) {
+	t.Helper()
+
+	var home homemodel.Home
+	if err := application.DB().Where("home_id = ?", homeBusinessID).Take(&home).Error; err != nil {
+		t.Fatalf("find home for device fixture: %v", err)
+	}
+
+	device := devicemodel.Device{
+		UUID:          uuid,
+		DeviceID:      deviceID,
+		UID:           uid,
+		BindType:      1,
+		Secret:        "secret-" + uuid,
+		Name:          name,
+		FirstBindTime: 1770000000,
+		BindTime:      1770000001,
+	}
+	if err := application.DB().Create(&device).Error; err != nil {
+		t.Fatalf("create device fixture: %v", err)
+	}
+
+	link := devicemodel.HomeDevice{
+		HomeID:   home.ID,
+		DeviceID: device.ID,
+	}
+	if err := application.DB().Create(&link).Error; err != nil {
+		t.Fatalf("create home_device fixture: %v", err)
 	}
 }

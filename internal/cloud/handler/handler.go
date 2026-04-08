@@ -20,9 +20,9 @@ func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func RegisterCloudRoutes(group *gin.RouterGroup, handler *Handler, authMiddleware gin.HandlerFunc) {
+func RegisterCloudRoutes(group *gin.RouterGroup, handler *Handler, protocolMiddleware gin.HandlerFunc, authMiddleware gin.HandlerFunc) {
 	cloudGroup := group.Group("/cloud")
-	cloudGroup.Use(authMiddleware)
+	cloudGroup.Use(protocolMiddleware, authMiddleware)
 	cloudGroup.GET("/getToken", handler.GetToken)
 }
 

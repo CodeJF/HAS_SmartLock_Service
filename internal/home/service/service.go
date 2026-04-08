@@ -49,8 +49,8 @@ type HomeUserItem struct {
 }
 
 type DeviceState struct {
-	Desired  map[string]any `json:"desired,omitempty"`
-	Reported map[string]any `json:"reported,omitempty"`
+	Desired  map[string]any `json:"desired"`
+	Reported map[string]any `json:"reported"`
 }
 
 type HomeDeviceItem struct {

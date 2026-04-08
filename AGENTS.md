@@ -101,3 +101,12 @@
 - 本次切换允许直接重写 `001`，将其收敛为当前完整 schema 基线；切换完成后，后续 schema 变更一律通过新增 migration 文件推进。
 - 程序启动流程目标已明确：连接 MySQL 后自动执行未执行的 `migrations/*.sql`，并通过 `schema_migrations` 记录版本。
 - 用户当前希望尽早养成正式习惯，即使尚未上线也优先采用 migration，而不是继续长期依赖 GORM 自动建表。
+
+## 当前记忆（2026-04-08）
+
+- 今天已明确协议层要直接切新合同，不再兼容 `Authorization: Bearer`；登录态统一改为 Header `access_token`。
+- 当前用户端已实现接口需要统一校验 Header：`appid`、`app_version`、`phone_code`、`timestamp`、`request_id`、`sign`。
+- 用户端签名规则已固定为：`METHOD + "&" + app_version + appid + phone_code + request_id + timestamp + "&" + canonicalQueryOrBodyParams`，再用 `APP_SECRET_KEY` 做 HMAC-SHA256 并 Base64。
+- 时间戳校验当前固定允许偏差 5 分钟；超出时返回 `1004`。
+- 设备端 `POST /v1/device/bind`、`POST /v1/device/login` 也必须真实实现，且签名规则与用户端不同：`sign` 使用 `model_secret`，配置来源固定为 JSON 环境变量 `DEVICE_MODEL_SECRETS`。
+- `docs/api/openapi.yaml` 已同步补充 Header 参数与设备端 `bind/login` 合同壳，但仅改 OpenAPI 不足以联调成功，代码侧必须同步协议层。

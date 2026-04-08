@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,52 +11,66 @@ import (
 )
 
 type Config struct {
-	AppName             string
-	AppEnv              string
-	HTTPAddr            string
-	DBDSN               string
-	MySQLDSN            string
-	JWTSecret           string
-	AccessTokenTTL      int
-	RefreshTokenTTL     int
-	VerificationTTL     int
-	OSSEndpoint         string
-	OSSBucketName       string
-	OSSPublicBaseURL    string
-	OSSAccessKeyID      string
-	OSSAccessKeySecret  string
-	OSSAvatarPrefix     string
-	OSSUploadURLTTL     int
-	OSSSignedReadURLTTL int
-	OSSSTSRoleARN       string
-	OSSSTSSessionPrefix string
-	OSSSTSDuration      int
+	AppName               string
+	AppEnv                string
+	HTTPAddr              string
+	DBDSN                 string
+	MySQLDSN              string
+	JWTSecret             string
+	AccessTokenTTL        int
+	RefreshTokenTTL       int
+	VerificationTTL       int
+	AppSecretKey          string
+	DeviceModelSecretsRaw string
+	DeviceModelSecrets    map[string]string
+	SignTimestampSkew     int
+	OSSEndpoint           string
+	OSSBucketName         string
+	OSSPublicBaseURL      string
+	OSSAccessKeyID        string
+	OSSAccessKeySecret    string
+	OSSAvatarPrefix       string
+	OSSUploadURLTTL       int
+	OSSSignedReadURLTTL   int
+	OSSSTSRoleARN         string
+	OSSSTSSessionPrefix   string
+	OSSSTSDuration        int
 }
 
 func Load() Config {
 	v := newViper()
 
 	cfg := Config{
-		AppName:             v.GetString("APP_NAME"),
-		AppEnv:              v.GetString("APP_ENV"),
-		HTTPAddr:            v.GetString("HTTP_ADDR"),
-		DBDSN:               v.GetString("DB_DSN"),
-		MySQLDSN:            v.GetString("MYSQL_DSN"),
-		JWTSecret:           v.GetString("JWT_SECRET"),
-		AccessTokenTTL:      v.GetInt("ACCESS_TOKEN_TTL_SECONDS"),
-		RefreshTokenTTL:     v.GetInt("REFRESH_TOKEN_TTL_SECONDS"),
-		VerificationTTL:     v.GetInt("VERIFICATION_CODE_TTL_SECONDS"),
-		OSSEndpoint:         v.GetString("OSS_ENDPOINT"),
-		OSSBucketName:       v.GetString("OSS_BUCKET_NAME"),
-		OSSPublicBaseURL:    v.GetString("OSS_PUBLIC_BASE_URL"),
-		OSSAccessKeyID:      v.GetString("OSS_ACCESS_KEY_ID"),
-		OSSAccessKeySecret:  v.GetString("OSS_ACCESS_KEY_SECRET"),
-		OSSAvatarPrefix:     v.GetString("OSS_AVATAR_PREFIX"),
-		OSSUploadURLTTL:     v.GetInt("OSS_UPLOAD_URL_TTL_SECONDS"),
-		OSSSignedReadURLTTL: v.GetInt("OSS_SIGNED_READ_URL_TTL_SECONDS"),
-		OSSSTSRoleARN:       v.GetString("OSS_STS_ROLE_ARN"),
-		OSSSTSSessionPrefix: v.GetString("OSS_STS_SESSION_PREFIX"),
-		OSSSTSDuration:      v.GetInt("OSS_STS_DURATION_SECONDS"),
+		AppName:               v.GetString("APP_NAME"),
+		AppEnv:                v.GetString("APP_ENV"),
+		HTTPAddr:              v.GetString("HTTP_ADDR"),
+		DBDSN:                 v.GetString("DB_DSN"),
+		MySQLDSN:              v.GetString("MYSQL_DSN"),
+		JWTSecret:             v.GetString("JWT_SECRET"),
+		AccessTokenTTL:        v.GetInt("ACCESS_TOKEN_TTL_SECONDS"),
+		RefreshTokenTTL:       v.GetInt("REFRESH_TOKEN_TTL_SECONDS"),
+		VerificationTTL:       v.GetInt("VERIFICATION_CODE_TTL_SECONDS"),
+		AppSecretKey:          v.GetString("APP_SECRET_KEY"),
+		DeviceModelSecretsRaw: v.GetString("DEVICE_MODEL_SECRETS"),
+		SignTimestampSkew:     v.GetInt("SIGN_TIMESTAMP_SKEW_SECONDS"),
+		OSSEndpoint:           v.GetString("OSS_ENDPOINT"),
+		OSSBucketName:         v.GetString("OSS_BUCKET_NAME"),
+		OSSPublicBaseURL:      v.GetString("OSS_PUBLIC_BASE_URL"),
+		OSSAccessKeyID:        v.GetString("OSS_ACCESS_KEY_ID"),
+		OSSAccessKeySecret:    v.GetString("OSS_ACCESS_KEY_SECRET"),
+		OSSAvatarPrefix:       v.GetString("OSS_AVATAR_PREFIX"),
+		OSSUploadURLTTL:       v.GetInt("OSS_UPLOAD_URL_TTL_SECONDS"),
+		OSSSignedReadURLTTL:   v.GetInt("OSS_SIGNED_READ_URL_TTL_SECONDS"),
+		OSSSTSRoleARN:         v.GetString("OSS_STS_ROLE_ARN"),
+		OSSSTSSessionPrefix:   v.GetString("OSS_STS_SESSION_PREFIX"),
+		OSSSTSDuration:        v.GetInt("OSS_STS_DURATION_SECONDS"),
+	}
+
+	if raw := strings.TrimSpace(cfg.DeviceModelSecretsRaw); raw != "" {
+		modelSecrets := make(map[string]string)
+		if err := json.Unmarshal([]byte(raw), &modelSecrets); err == nil {
+			cfg.DeviceModelSecrets = modelSecrets
+		}
 	}
 
 	if cfg.MySQLDSN != "" {
@@ -101,6 +116,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ACCESS_TOKEN_TTL_SECONDS", 7200)
 	v.SetDefault("REFRESH_TOKEN_TTL_SECONDS", 2592000)
 	v.SetDefault("VERIFICATION_CODE_TTL_SECONDS", 300)
+	v.SetDefault("APP_SECRET_KEY", "")
+	v.SetDefault("DEVICE_MODEL_SECRETS", "")
+	v.SetDefault("SIGN_TIMESTAMP_SKEW_SECONDS", 300)
 	v.SetDefault("OSS_ENDPOINT", "")
 	v.SetDefault("OSS_BUCKET_NAME", "")
 	v.SetDefault("OSS_PUBLIC_BASE_URL", "")

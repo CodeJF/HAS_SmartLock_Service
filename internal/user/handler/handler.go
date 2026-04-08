@@ -81,8 +81,9 @@ func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func RegisterUserRoutes(group *gin.RouterGroup, handler *Handler, authMiddleware gin.HandlerFunc) {
+func RegisterUserRoutes(group *gin.RouterGroup, handler *Handler, protocolMiddleware gin.HandlerFunc, authMiddleware gin.HandlerFunc) {
 	userGroup := group.Group("/user")
+	userGroup.Use(protocolMiddleware)
 
 	userGroup.POST("/registerSend", handler.RegisterSend)
 	userGroup.POST("/loginSend", handler.LoginSend)

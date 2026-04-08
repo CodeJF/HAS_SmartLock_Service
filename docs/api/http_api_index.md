@@ -1,7 +1,60 @@
-# HTTP API 服务索引（含完整数据类型）
+# HTTP API 服务索引（整合版 · 供后端开发参考）
 
-> 整理自 `docs/api/api_index.md`、`docs/api/auth_rules.md` 及 V2 Repository/Network/Models 层代码。
-> 最后更新：2026-03-31
+> 整合自 `api_index.md`、`auth_rules.md`、`response_envelope.md` 及实际测试集合。
+> 这是面向后端开发的完整版本，包含了请求壳、响应壳和签名规则。
+> 最后更新：2026-04-08
+
+---
+
+## 零、全局规则（必须阅读）
+
+### 1. 统一响应格式 (Response Envelope)
+针对所有的 HTTP 接口请求，除特殊情况外，后端均必须返回统一结构的 JSON：
+
+```json
+{
+  "code": 1000,
+  "msg": "ok",
+  "data": { ... }
+}
+```
+* **`code`**：`1000` 表示成功；`1004` 表示客户端需重新同步时间（触发 /time 修正）；`1005` 表示 access_token 失效，需走 refresh 刷新；其他值纯业务失败。
+* **`msg`**：提示信息。
+* **`data`**：可空，按接口文档声明返回具体数据。
+
+### 2. Header 参数与接口鉴权签名
+绝大多数用户端接口无论是（`Auth: ❌` 还是 `Auth: ✅`）都需要携带防篡改签名。除特例，以下是常规全局 Headers：
+
+| 字段 | 类型 | 必填 (针对常规请求) | 说明 |
+|------|------|------|------|
+| `appid` | `string` | ✅ | 应用 ID |
+| `app_version` | `string` | ✅ | 应用版本号 |
+| `phone_code` | `string` | ✅ | 手机国家区号 |
+| `timestamp` | `string` | ✅ | Unix 秒级时间戳（考虑到偏差纠正） |
+| `request_id` | `string` | ✅ | 请求唯一 ID (UUID v4) |
+| `sign` | `string` | ✅ | 签名（见下文计算算法） |
+| `access_token` | `string` | 按文档标识 `Auth` 决定 | **当 `Auth: ✅` 时，必须携带。** |
+
+#### 用户端 API 签名算法 (`sign`)：
+```javascript
+// 1. 生成基础字符串
+baseString = HTTP_METHOD + "&" +
+             access_token +
+             app_version +
+             appid +
+             phone_code +
+             request_id +
+             timestamp +
+             "&" + canonicalQueryOrBodyParams;
+             
+// 注意：
+// - 仅当请求实际携带 access_token Header 时，access_token 才参与签名；未携带时按空字符串处理。
+// - 如果存在 Query 或 Body Params，先对它们进行 Key 的 ASCII 升序排列，并拼装成 Key=Value&Key2=Val2 形式作为 canonicalQueryOrBodyParams。没有则留空字符串。
+
+// 2. HMAC-SHA256(baseString, secret_key)
+// 3. 将 HMAC 原始结果转成十六进制字符串
+// 4. 再将该十六进制字符串按 UTF-8 字节做 Base64，赋值给 Header "sign"
+```
 
 ---
 
@@ -156,13 +209,22 @@
   |------|------|------|
   | `username` | `string` | 登录账号 |
   | `nickname` | `string?` | 昵称 |
-  | `avatar` | `string?` | 头像 object key，固定为 `avatar/{uid}` |
+  | `avatar` | `string?` | 头像 URL |
   | `is_debug` | `int?` | 是否调试账号 |
   | `register_time` | `int?` | 注册时间（Unix 秒） |
 
 ---
 
-### 10. 修改密码
+### 10. 获取上传用户头像地址
+- **Method**: `GET`
+- **Path**: `/v1/user/putAvatar`
+- **Auth**: ✅
+- **参数方式**: 无参数
+- **返回值**: TODO（无示例）
+
+---
+
+### 11. 修改密码
 - **Method**: `POST`
 - **Path**: `/v1/user/updatePwd`
 - **Auth**: ✅
@@ -175,7 +237,7 @@
 
 ---
 
-### 11. 修改昵称
+### 12. 修改昵称
 - **Method**: `POST`
 - **Path**: `/v1/user/updateInfo`
 - **Auth**: ✅
@@ -188,7 +250,7 @@
 
 ---
 
-### 12. 上报登录设备信息
+### 13. 上报登录设备信息
 - **Method**: `POST`
 - **Path**: `/v1/user/putClient`
 - **Auth**: ✅
@@ -206,7 +268,7 @@
 
 ---
 
-### 13. 退出登录
+### 14. 退出登录
 - **Method**: `POST`
 - **Path**: `/v1/user/logout`
 - **Auth**: ✅
@@ -215,7 +277,7 @@
 
 ---
 
-### 14. 发送删除帐号验证码
+### 15. 发送删除帐号验证码
 - **Method**: `POST`
 - **Path**: `/v1/user/deleteSend`
 - **Auth**: ✅
@@ -228,7 +290,7 @@
 
 ---
 
-### 15. 删除帐号
+### 16. 删除帐号
 - **Method**: `POST`
 - **Path**: `/v1/user/delete`
 - **Auth**: ✅
@@ -243,6 +305,44 @@
 ---
 
 ## 二、设备模块 (`/v1/device/*`)
+
+> **[❗] 设备端专属 API 注意事项**：
+> 下方 `设备绑定` 与 `设备登录` 也是由设备端通过 HTTP 调用后端的接口，但它们的鉴权头与签名规则与用户端不同。使用 `model_secret` 而不是用户的 `secret_key`。
+> **设备端签名算法**:
+> `baseString = METHOD + "&" + model + request_id + timestamp + uuid + "&" + canonicalQueryOrBodyParams`
+> `sign = Base64(HmacSHA256(baseString, model_secret))`
+
+### 16.1 设备绑定 (仅限设备端调用)
+- **Method**: `POST`
+- **Path**: `/v1/device/bind`
+- **Auth**: 设备专属认证
+- **参数方式**: Body (JSON)
+- **请求头强制验证项**: `model`, `uuid`, `appid`, `timestamp`, `request_id`, `sign`
+- **请求参数**:
+  | 字段 | 类型 | 必填 | 说明 |
+  |------|------|------|------|
+  | `uid` | `string` | ✅ | 用户 ID |
+  | `mac` | `string` | ✅ | MAC 地址 |
+  | `zone` | `string` | ✅ | 时区 (如 `"8.00"`) |
+  | `version` | `string` | ✅ | 固件版本号 |
+- **返回值**: `null` (返回标准通用基础响应, 下同)
+
+---
+
+### 16.2 设备登录 (仅限设备端调用)
+- **Method**: `POST`
+- **Path**: `/v1/device/login`
+- **Auth**: 设备专属认证
+- **参数方式**: Body (JSON)
+- **请求头强制验证项**: `model`, `uuid`, `uid`, `timestamp`, `request_id`, `sign`
+- **请求参数**:
+  | 字段 | 类型 | 必填 | 说明 |
+  |------|------|------|------|
+  | `zone` | `string` | ✅ | 时区 (如 `"8.00"`) |
+  | `a` | `boolean` | ✅ | 占位/附加参数 |
+- **返回值**: `null`
+
+---
 
 ### 17. 设备列表
 - **Method**: `GET`
@@ -527,7 +627,7 @@
   |------|------|------|
   | `uid` | `string` | 用户 ID |
   | `username` | `string?` | 用户名 |
-  | `avatar` | `string?` | 头像 object key，固定为 `avatar/{uid}` |
+  | `avatar` | `string?` | 头像 URL |
   | `role` | `int?` | 角色 |
   | `accept` | `int?` | 是否接受邀请 |
 

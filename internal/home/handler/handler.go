@@ -29,9 +29,9 @@ func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func RegisterHomeRoutes(group *gin.RouterGroup, handler *Handler, authMiddleware gin.HandlerFunc) {
+func RegisterHomeRoutes(group *gin.RouterGroup, handler *Handler, protocolMiddleware gin.HandlerFunc, authMiddleware gin.HandlerFunc) {
 	deviceGroup := group.Group("/device")
-	deviceGroup.Use(authMiddleware)
+	deviceGroup.Use(protocolMiddleware, authMiddleware)
 	deviceGroup.POST("/homeCreate", handler.CreateHome)
 	deviceGroup.GET("/homes", handler.ListHomes)
 	deviceGroup.GET("/homeDevices", handler.ListHomeDevices)

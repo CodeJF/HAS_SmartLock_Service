@@ -8,6 +8,9 @@ import (
 
 	cloudhandler "has-smartlock-service/internal/cloud/handler"
 	cloudservice "has-smartlock-service/internal/cloud/service"
+	devicehandler "has-smartlock-service/internal/device/handler"
+	devicerepository "has-smartlock-service/internal/device/repository"
+	deviceservice "has-smartlock-service/internal/device/service"
 	homehandler "has-smartlock-service/internal/home/handler"
 	homerepository "has-smartlock-service/internal/home/repository"
 	homeservice "has-smartlock-service/internal/home/service"
@@ -15,6 +18,7 @@ import (
 	"has-smartlock-service/internal/pkg/config"
 	"has-smartlock-service/internal/pkg/db"
 	"has-smartlock-service/internal/pkg/httpx"
+	"has-smartlock-service/internal/pkg/protocol"
 	"has-smartlock-service/internal/pkg/stsclient"
 	"has-smartlock-service/internal/user/handler"
 	"has-smartlock-service/internal/user/repository"
@@ -95,12 +99,28 @@ func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) er
 	homeRepo := homerepository.New(database)
 	homeService := homeservice.New(homeRepo, userRepo, cfg)
 	homeHandler := homehandler.New(homeService)
+	deviceRepo := devicerepository.New(database)
+	deviceService := deviceservice.New(deviceRepo, homeRepo, userRepo)
+	deviceHandler := devicehandler.New(deviceService)
 
 	v1 := router.Group("/v1")
+	userProtocolMiddleware, err := protocol.UserMiddleware(cfg.AppSecretKey, cfg.SignTimestampSkew)
+	if err != nil {
+		return err
+	}
+	deviceModelSecrets, err := protocol.ParseModelSecrets(cfg.DeviceModelSecretsRaw)
+	if err != nil {
+		return err
+	}
+	deviceProtocolMiddleware, err := protocol.DeviceMiddleware(deviceModelSecrets, cfg.SignTimestampSkew)
+	if err != nil {
+		return err
+	}
 	authMiddleware := auth.Middleware(tokenManager)
-	handler.RegisterUserRoutes(v1, userHandler, authMiddleware)
-	cloudhandler.RegisterCloudRoutes(v1, cloudHandler, authMiddleware)
-	homehandler.RegisterHomeRoutes(v1, homeHandler, authMiddleware)
+	handler.RegisterUserRoutes(v1, userHandler, userProtocolMiddleware, authMiddleware)
+	cloudhandler.RegisterCloudRoutes(v1, cloudHandler, userProtocolMiddleware, authMiddleware)
+	homehandler.RegisterHomeRoutes(v1, homeHandler, userProtocolMiddleware, authMiddleware)
+	devicehandler.RegisterDeviceRoutes(v1, deviceHandler, userProtocolMiddleware, deviceProtocolMiddleware, authMiddleware)
 	return nil
 }
 

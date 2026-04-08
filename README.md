@@ -51,6 +51,9 @@ go run ./cmd/api
 - `ACCESS_TOKEN_TTL_SECONDS`
 - `REFRESH_TOKEN_TTL_SECONDS`
 - `VERIFICATION_CODE_TTL_SECONDS`
+- `APP_SECRET_KEY`
+- `DEVICE_MODEL_SECRETS`
+- `SIGN_TIMESTAMP_SKEW_SECONDS`
 - `OSS_ENDPOINT`
 - `OSS_BUCKET_NAME`
 - `OSS_PUBLIC_BASE_URL`
@@ -71,6 +74,9 @@ HTTP_ADDR=:8080
 DB_DSN=
 MYSQL_DSN=root:password@tcp(127.0.0.1:3306)/has_smartlock_service?charset=utf8mb4&parseTime=true&loc=Local
 JWT_SECRET=dev-secret-change-me
+APP_SECRET_KEY=replace-with-app-secret
+DEVICE_MODEL_SECRETS={"SL100":"replace-with-model-secret"}
+SIGN_TIMESTAMP_SKEW_SECONDS=300
 OSS_ENDPOINT=oss-cn-shenzhen.aliyuncs.com
 OSS_BUCKET_NAME=has-smartlock
 OSS_PUBLIC_BASE_URL=https://has-smartlock.cn-shenzhen.taihangpkx.cn
@@ -110,6 +116,14 @@ OSS_STS_DURATION_SECONDS=900
 - `POST /v1/user/register`
 - `POST /v1/user/login`
 - `GET /v1/user/info`
+
+## 协议约定
+
+- 用户端已实现接口统一读取 Header：`appid`、`app_version`、`phone_code`、`timestamp`、`request_id`、`sign`
+- 用户端登录态接口额外通过 Header `access_token` 读取访问令牌，不再使用 `Authorization: Bearer`
+- 用户端签名使用 `APP_SECRET_KEY`
+- 设备端 `POST /v1/device/bind`、`POST /v1/device/login` 使用 `DEVICE_MODEL_SECRETS` 中按 `model` 查到的 `model_secret`
+- 默认时间戳允许偏差为 300 秒，可通过 `SIGN_TIMESTAMP_SKEW_SECONDS` 调整
 
 ## 后续方向
 

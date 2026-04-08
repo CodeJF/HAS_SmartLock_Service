@@ -12,6 +12,7 @@ tags:
   - name: System
   - name: User
   - name: Cloud
+  - name: Device
   - name: Home
 paths:
   /healthz:
@@ -56,6 +57,15 @@ paths:
         - User
       summary: 发送注册验证码
       operationId: userRegisterSend
+      description: |
+        用户端常规签名接口。需携带 appid、app_version、phone_code、timestamp、request_id、sign 等 Header。
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
       requestBody:
         required: true
         content:
@@ -63,8 +73,8 @@ paths:
             schema:
               $ref: '#/components/schemas/SendCodeRequest'
             example:
-              username: demo@example.com
-              country: '86'
+              username: '{{username}}'
+              country: '{{country}}'
       responses:
         '200':
           description: 成功
@@ -82,6 +92,15 @@ paths:
         - User
       summary: 发送登录验证码
       operationId: userLoginSend
+      description: |
+        用户端常规签名接口。需携带 appid、app_version、phone_code、timestamp、request_id、sign 等 Header。
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
       requestBody:
         required: true
         content:
@@ -89,8 +108,8 @@ paths:
             schema:
               $ref: '#/components/schemas/SendCodeRequest'
             example:
-              username: demo@example.com
-              country: '86'
+              username: '{{username}}'
+              country: '{{country}}'
       responses:
         '200':
           description: 成功
@@ -108,6 +127,15 @@ paths:
         - User
       summary: 用户注册
       operationId: userRegister
+      description: |
+        用户端常规签名接口。需携带 appid、app_version、phone_code、timestamp、request_id、sign 等 Header。
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
       requestBody:
         required: true
         content:
@@ -115,10 +143,10 @@ paths:
             schema:
               $ref: '#/components/schemas/RegisterRequest'
             example:
-              username: demo@example.com
-              country: '86'
-              code: '123456'
-              password: md5-password
+              username: '{{username}}'
+              country: '{{country}}'
+              code: '{{code}}'
+              password: '{{password}}'
       responses:
         '200':
           description: 成功
@@ -141,6 +169,15 @@ paths:
         - User
       summary: 用户登录
       operationId: userLogin
+      description: |
+        用户端常规签名接口。需携带 appid、app_version、phone_code、timestamp、request_id、sign 等 Header。
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
       requestBody:
         required: true
         content:
@@ -151,17 +188,17 @@ paths:
               passwordLogin:
                 summary: 密码登录
                 value:
-                  username: demo@example.com
+                  username: '{{username}}'
                   type: password
-                  password: md5-password
-                  phone_brand: iPhone
+                  password: '{{password}}'
+                  phone_brand: '{{phone_brand}}'
               codeLogin:
                 summary: 验证码登录
                 value:
-                  username: demo@example.com
+                  username: '{{username}}'
                   type: code
-                  code: '123456'
-                  phone_brand: iPhone
+                  code: '{{code}}'
+                  phone_brand: '{{phone_brand}}'
       responses:
         '200':
           description: 成功
@@ -175,6 +212,15 @@ paths:
         - User
       summary: 检查验证码
       operationId: userValidateCode
+      description: |
+        用户端常规签名接口。需携带 appid、app_version、phone_code、timestamp、request_id、sign 等 Header。
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
       requestBody:
         required: true
         content:
@@ -182,8 +228,8 @@ paths:
             schema:
               $ref: '#/components/schemas/ValidateCodeRequest'
             example:
-              username: demo@example.com
-              code: '123456'
+              username: '{{username}}'
+              code: '{{code}}'
               type: register
       responses:
         '200':
@@ -198,6 +244,15 @@ paths:
         - User
       summary: 发送忘记密码验证码
       operationId: userResetSend
+      description: |
+        用户端常规签名接口。需携带 appid、app_version、phone_code、timestamp、request_id、sign 等 Header。
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
       requestBody:
         required: true
         content:
@@ -205,8 +260,8 @@ paths:
             schema:
               $ref: '#/components/schemas/SendCodeRequest'
             example:
-              username: demo@example.com
-              country: '86'
+              username: '{{username}}'
+              country: '{{country}}'
       responses:
         '200':
           description: 成功
@@ -220,6 +275,15 @@ paths:
         - User
       summary: 忘记密码（重置密码）
       operationId: userReset
+      description: |
+        用户端常规签名接口。需携带 appid、app_version、phone_code、timestamp、request_id、sign 等 Header。
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
       requestBody:
         required: true
         content:
@@ -227,9 +291,9 @@ paths:
             schema:
               $ref: '#/components/schemas/ResetRequest'
             example:
-              username: demo@example.com
-              code: '123456'
-              password: new-md5-password
+              username: '{{username}}'
+              code: '{{code}}'
+              password: '{{new_password}}'
       responses:
         '200':
           description: 成功
@@ -243,6 +307,15 @@ paths:
         - User
       summary: 刷新 Token
       operationId: userRefresh
+      description: |
+        用户端常规签名接口。需携带 appid、app_version、phone_code、timestamp、request_id、sign 等 Header。
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
       requestBody:
         required: true
         content:
@@ -250,7 +323,7 @@ paths:
             schema:
               $ref: '#/components/schemas/RefreshRequest'
             example:
-              refresh_token: refresh-token
+              refresh_token: '{{refresh_token}}'
       responses:
         '200':
           description: 成功
@@ -264,8 +337,18 @@ paths:
         - User
       summary: 获取用户信息
       operationId: userInfo
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       responses:
         '200':
           description: 成功
@@ -288,8 +371,18 @@ paths:
         - User
       summary: 退出登录
       operationId: userLogout
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       responses:
         '200':
           description: 成功
@@ -303,8 +396,18 @@ paths:
         - User
       summary: 修改密码
       operationId: userUpdatePwd
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       requestBody:
         required: true
         content:
@@ -312,7 +415,7 @@ paths:
             schema:
               $ref: '#/components/schemas/UpdatePasswordRequest'
             example:
-              new_password: new-md5-password
+              new_password: '{{new_password}}'
       responses:
         '200':
           description: 成功
@@ -326,8 +429,18 @@ paths:
         - User
       summary: 修改昵称
       operationId: userUpdateInfo
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       requestBody:
         required: true
         content:
@@ -335,7 +448,7 @@ paths:
             schema:
               $ref: '#/components/schemas/UpdateInfoRequest'
             example:
-              nickname: New Nickname
+              nickname: '{{nickname}}'
       responses:
         '200':
           description: 成功
@@ -349,8 +462,18 @@ paths:
         - User
       summary: 上报登录设备信息
       operationId: userPutClient
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       requestBody:
         required: true
         content:
@@ -359,11 +482,11 @@ paths:
               $ref: '#/components/schemas/PutClientRequest'
             example:
               push_type: 1
-              push_token: device-token
-              brand: iPhone
-              version: iOS 18
-              language: zh_CN
-              zone: Asia/Shanghai
+              push_token: '{{push_token}}'
+              brand: '{{brand}}'
+              version: '{{version}}'
+              language: '{{language}}'
+              zone: '{{zone}}'
       responses:
         '200':
           description: 成功
@@ -377,14 +500,24 @@ paths:
         - Cloud
       summary: 获取 OSS STS 临时凭证
       operationId: cloudGetToken
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
       parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
         - in: query
           name: uuid
           required: true
           schema:
             type: string
+            example: '{{uuid}}'
           description: 设备 UUID（当前仅兼容保留）
       responses:
         '200':
@@ -410,8 +543,18 @@ paths:
         - Home
       summary: 创建家庭
       operationId: homeCreate
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       requestBody:
         required: true
         content:
@@ -419,7 +562,7 @@ paths:
             schema:
               $ref: '#/components/schemas/HomeCreateRequest'
             example:
-              name: My Home
+              name: '{{home_name}}'
       responses:
         '200':
           description: 成功
@@ -433,8 +576,18 @@ paths:
         - Home
       summary: 家庭列表
       operationId: homes
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       responses:
         '200':
           description: 成功
@@ -452,20 +605,194 @@ paths:
                     count: 0
                     role: 1
                     create_time: 1711857600
+  /v1/device/bind:
+    post:
+      tags:
+        - Device
+      summary: 设备绑定（仅限设备端调用）
+      operationId: deviceBind
+      description: |
+        设备端专属签名接口。
+        sign 使用 model_secret 计算，不使用用户端 secret_key 规则。
+      parameters:
+        - $ref: '#/components/parameters/DeviceModelHeader'
+        - $ref: '#/components/parameters/DeviceUUIDHeader'
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceBindRequest'
+            example:
+              uid: '{{uid}}'
+              mac: '{{mac}}'
+              zone: '{{zone}}'
+              version: '{{firmware_version}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/login:
+    post:
+      tags:
+        - Device
+      summary: 设备登录（仅限设备端调用）
+      operationId: deviceLogin
+      description: |
+        设备端专属签名接口。
+        sign 使用 model_secret 计算，不使用用户端 secret_key 规则。
+      parameters:
+        - $ref: '#/components/parameters/DeviceModelHeader'
+        - $ref: '#/components/parameters/DeviceUUIDHeader'
+        - $ref: '#/components/parameters/DeviceUIDHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceLoginRequest'
+            example:
+              zone: '{{zone}}'
+              a: true
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/list:
+    get:
+      tags:
+        - Device
+      summary: 设备列表
+      operationId: deviceList
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: home_id
+          required: false
+          schema:
+            type: string
+            example: '{{home_id}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceListEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data: []
+  /v1/device/newList:
+    get:
+      tags:
+        - Device
+      summary: 新设备列表
+      operationId: newDeviceList
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewDevicesEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data: []
+  /v1/device/upName:
+    post:
+      tags:
+        - Device
+      summary: 修改设备名称
+      operationId: deviceUpName
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpNameRequest'
+            example:
+              uuid: '{{uuid}}'
+              name: '{{device_name}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
   /v1/device/homeDevices:
     get:
       tags:
         - Home
       summary: 家庭设备列表
       operationId: homeDevices
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
       parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
         - in: query
           name: home_id
           required: true
           schema:
             type: string
+            example: '{{home_id}}'
       responses:
         '200':
           description: 成功
@@ -483,14 +810,24 @@ paths:
         - Home
       summary: 家庭用户列表
       operationId: homeUsers
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
       parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
         - in: query
           name: home_id
           required: true
           schema:
             type: string
+            example: '{{home_id}}'
       responses:
         '200':
           description: 成功
@@ -513,8 +850,18 @@ paths:
         - Home
       summary: 更新家庭信息
       operationId: homeUpdate
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       requestBody:
         required: true
         content:
@@ -522,9 +869,9 @@ paths:
             schema:
               $ref: '#/components/schemas/HomeUpdateRequest'
             example:
-              home_id: h_123456789
-              name: Updated Home
-              location: Shenzhen
+              home_id: '{{home_id}}'
+              name: '{{home_name}}'
+              location: '{{location}}'
       responses:
         '200':
           description: 成功
@@ -538,14 +885,24 @@ paths:
         - Home
       summary: 删除家庭
       operationId: homeDelete
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
       parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
         - in: query
           name: home_id
           required: true
           schema:
             type: string
+            example: '{{home_id}}'
       responses:
         '200':
           description: 成功
@@ -559,8 +916,18 @@ paths:
         - User
       summary: 发送删除帐号验证码
       operationId: userDeleteSend
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       requestBody:
         required: true
         content:
@@ -568,7 +935,7 @@ paths:
             schema:
               $ref: '#/components/schemas/DeleteSendRequest'
             example:
-              username: demo@example.com
+              username: '{{username}}'
       responses:
         '200':
           description: 成功
@@ -582,8 +949,18 @@ paths:
         - User
       summary: 删除帐号
       operationId: userDelete
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
       requestBody:
         required: true
         content:
@@ -591,8 +968,8 @@ paths:
             schema:
               $ref: '#/components/schemas/DeleteRequest'
             example:
-              username: demo@example.com
-              code: '123456'
+              username: '{{username}}'
+              code: '{{code}}'
       responses:
         '200':
           description: 成功
@@ -601,6 +978,97 @@ paths:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
 components:
+  parameters:
+    AppIDHeader:
+      in: header
+      name: appid
+      required: true
+      example: '{{appid}}'
+      schema:
+        type: string
+        default: '{{appid}}'
+      description: 应用 ID
+    AppVersionHeader:
+      in: header
+      name: app_version
+      required: true
+      example: '{{app_version}}'
+      schema:
+        type: string
+        default: '{{app_version}}'
+      description: 应用版本号
+    PhoneCodeHeader:
+      in: header
+      name: phone_code
+      required: true
+      example: '{{phone_code}}'
+      schema:
+        type: string
+        default: '{{phone_code}}'
+      description: 手机国家区号
+    TimestampHeader:
+      in: header
+      name: timestamp
+      required: true
+      example: '{{timestamp}}'
+      schema:
+        type: string
+        default: '{{timestamp}}'
+      description: Unix 秒级时间戳
+    RequestIDHeader:
+      in: header
+      name: request_id
+      required: true
+      example: '{{request_id}}'
+      schema:
+        type: string
+        default: '{{request_id}}'
+      description: 请求唯一 ID
+    SignHeader:
+      in: header
+      name: sign
+      required: true
+      example: '{{sign}}'
+      schema:
+        type: string
+        default: '{{sign}}'
+      description: 请求签名
+    AccessTokenHeader:
+      in: header
+      name: access_token
+      required: true
+      example: '{{access_token}}'
+      schema:
+        type: string
+        default: '{{access_token}}'
+      description: 访问令牌
+    DeviceModelHeader:
+      in: header
+      name: model
+      required: true
+      example: '{{model}}'
+      schema:
+        type: string
+        default: '{{model}}'
+      description: 设备型号
+    DeviceUUIDHeader:
+      in: header
+      name: uuid
+      required: true
+      example: '{{uuid}}'
+      schema:
+        type: string
+        default: '{{uuid}}'
+      description: 设备 UUID
+    DeviceUIDHeader:
+      in: header
+      name: uid
+      required: true
+      example: '{{uid}}'
+      schema:
+        type: string
+        default: '{{uid}}'
+      description: 用户 UID
   securitySchemes:
     bearerAuth:
       type: http
@@ -665,10 +1133,10 @@ components:
       properties:
         username:
           type: string
-          example: demo@example.com
+          example: '{{username}}'
         country:
           type: string
-          example: '86'
+          example: '{{country}}'
     RegisterRequest:
       type: object
       required:
@@ -814,6 +1282,42 @@ components:
           type: string
         location:
           type: string
+    UpNameRequest:
+      type: object
+      required:
+        - uuid
+        - name
+      properties:
+        uuid:
+          type: string
+        name:
+          type: string
+    DeviceBindRequest:
+      type: object
+      required:
+        - uid
+        - mac
+        - zone
+        - version
+      properties:
+        uid:
+          type: string
+        mac:
+          type: string
+        zone:
+          type: string
+        version:
+          type: string
+    DeviceLoginRequest:
+      type: object
+      required:
+        - zone
+        - a
+      properties:
+        zone:
+          type: string
+        a:
+          type: boolean
     TokenData:
       type: object
       required:
@@ -988,6 +1492,43 @@ components:
           format: int64
         State:
           $ref: '#/components/schemas/DeviceState'
+    NewDevice:
+      type: object
+      required:
+        - uuid
+        - device_id
+        - uid
+        - bind_type
+        - secret
+        - name
+        - bind_status
+        - first_bind_time
+        - bind_time
+        - delete_time
+      properties:
+        uuid:
+          type: string
+        device_id:
+          type: string
+        uid:
+          type: string
+        bind_type:
+          type: integer
+        secret:
+          type: string
+        name:
+          type: string
+        bind_status:
+          type: integer
+        first_bind_time:
+          type: integer
+          format: int64
+        bind_time:
+          type: integer
+          format: int64
+        delete_time:
+          type: integer
+          format: int64
     HomesEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'
@@ -997,6 +1538,15 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/HomeItem'
+    DeviceListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Device'
     HomeDevicesEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'
@@ -1006,6 +1556,15 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Device'
+    NewDevicesEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/NewDevice'
     HomeUsersEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'

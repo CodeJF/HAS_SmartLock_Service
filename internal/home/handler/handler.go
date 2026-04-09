@@ -30,6 +30,11 @@ type homeAddDeviceRequest struct {
 	UUID   string `json:"uuid"`
 }
 
+type homeChangeRequest struct {
+	HomeID string `json:"home_id"`
+	UUID   string `json:"uuid"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -43,6 +48,7 @@ func RegisterHomeRoutes(group *gin.RouterGroup, handler *Handler, protocolMiddle
 	deviceGroup.GET("/homeUsers", handler.ListHomeUsers)
 	deviceGroup.POST("/homeUpdate", handler.UpdateHome)
 	deviceGroup.POST("/homeAddDevice", handler.AddDeviceToHome)
+	deviceGroup.POST("/homeChange", handler.ChangeDeviceHome)
 	deviceGroup.DELETE("/homeDelete", handler.DeleteHome)
 }
 
@@ -109,6 +115,20 @@ func (h *Handler) AddDeviceToHome(c *gin.Context) {
 	}
 
 	if err := h.service.AddDeviceToHome(auth.UIDFromContext(c), req.HomeID, req.UUID); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) ChangeDeviceHome(c *gin.Context) {
+	var req homeChangeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.ChangeDeviceHome(auth.UIDFromContext(c), req.HomeID, req.UUID); err != nil {
 		renderServiceError(c, err)
 		return
 	}

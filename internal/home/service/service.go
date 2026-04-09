@@ -335,6 +335,72 @@ func (s *Service) AddDeviceToHome(uid, homeID, uuid string) error {
 	})
 }
 
+func (s *Service) ChangeDeviceHome(uid, targetHomeID, uuid string) error {
+	if strings.TrimSpace(uid) == "" || strings.TrimSpace(targetHomeID) == "" || strings.TrimSpace(uuid) == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.userRepo.FindUserByUID(strings.TrimSpace(uid))
+	if err != nil {
+		if userrepo.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	device, err := s.deviceRepo.FindDeviceByUUID(strings.TrimSpace(uuid))
+	if err != nil {
+		if devicerepo.IsNotFound(err) {
+			return ErrDeviceNotFound
+		}
+		return err
+	}
+	if device.UID != user.UID {
+		return ErrDeviceForbidden
+	}
+
+	activeLink, err := s.homeRepo.FindActiveHomeDeviceByInternalDeviceID(device.ID)
+	if err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrDeviceForbidden
+		}
+		return err
+	}
+
+	if _, err := s.homeRepo.FindHomeMembershipByInternalHomeIDAndUserID(activeLink.HomeID, user.ID); err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrHomeForbidden
+		}
+		return err
+	}
+
+	targetHomeWithMember, err := s.homeRepo.FindHomeMembershipByHomeIDAndUserID(strings.TrimSpace(targetHomeID), user.ID)
+	if err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrHomeNotFound
+		}
+		return err
+	}
+	if targetHomeWithMember.Role != homemodel.RoleOwner {
+		return ErrHomeForbidden
+	}
+
+	if activeLink.HomeID == targetHomeWithMember.Home.ID {
+		return nil
+	}
+
+	now := s.clock()
+	return s.homeRepo.WithTx(func(txRepo *homerepo.Repository) error {
+		if err := txRepo.SoftDeleteHomeDeviceByID(activeLink.ID, now); err != nil {
+			return err
+		}
+		return txRepo.CreateHomeDevice(&devicemodel.HomeDevice{
+			HomeID:   targetHomeWithMember.Home.ID,
+			DeviceID: device.ID,
+		})
+	})
+}
+
 func (s *Service) DeleteHome(uid, homeID string) error {
 	if strings.TrimSpace(uid) == "" || strings.TrimSpace(homeID) == "" {
 		return ErrInvalidInput

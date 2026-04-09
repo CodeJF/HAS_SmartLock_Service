@@ -1476,6 +1476,149 @@ func TestHomeAddDeviceFlow(t *testing.T) {
 	}
 }
 
+func TestHomeChangeFlow(t *testing.T) {
+	application := newTestApp(t)
+	registered := registerUserForTest(t, application, "home-change@example.com")
+	other := registerUserForTest(t, application, "home-change-other@example.com")
+
+	sourceHomeID := createHomeForTest(t, application, registered.AccessToken, "Source Home")
+	targetHomeID := createHomeForTest(t, application, registered.AccessToken, "Target Home")
+
+	insertOwnedDeviceForTest(t, application, registered.UID, "home-change-uuid-1", "home-change-device-001", "Garage Door")
+	addDeviceToHomeForTest(t, application, registered.AccessToken, sourceHomeID, "home-change-uuid-1")
+
+	changeResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": targetHomeID,
+		"uuid":    "home-change-uuid-1",
+	}, "Bearer "+registered.AccessToken)
+	if changeResp.Code != 1000 {
+		t.Fatalf("homeChange code = %d, want 1000", changeResp.Code)
+	}
+
+	sourceDevicesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices?home_id="+sourceHomeID, nil, "Bearer "+registered.AccessToken)
+	if sourceDevicesResp.Code != 1000 {
+		t.Fatalf("source homeDevices code = %d, want 1000", sourceDevicesResp.Code)
+	}
+	var devices []homeDeviceResponse
+	if err := json.Unmarshal(sourceDevicesResp.Data, &devices); err != nil {
+		t.Fatalf("unmarshal source homeDevices response: %v", err)
+	}
+	if len(devices) != 0 {
+		t.Fatalf("source homeDevices length = %d, want 0", len(devices))
+	}
+
+	targetDevicesResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices?home_id="+targetHomeID, nil, "Bearer "+registered.AccessToken)
+	if targetDevicesResp.Code != 1000 {
+		t.Fatalf("target homeDevices code = %d, want 1000", targetDevicesResp.Code)
+	}
+	if err := json.Unmarshal(targetDevicesResp.Data, &devices); err != nil {
+		t.Fatalf("unmarshal target homeDevices response: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("target homeDevices length = %d, want 1", len(devices))
+	}
+	if devices[0].UUID != "home-change-uuid-1" {
+		t.Fatalf("target homeDevices uuid = %q, want home-change-uuid-1", devices[0].UUID)
+	}
+
+	idempotentResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": targetHomeID,
+		"uuid":    "home-change-uuid-1",
+	}, "Bearer "+registered.AccessToken)
+	if idempotentResp.Code != 1000 {
+		t.Fatalf("homeChange idempotent code = %d, want 1000", idempotentResp.Code)
+	}
+
+	targetDevicesAfterRepeatResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeDevices?home_id="+targetHomeID, nil, "Bearer "+registered.AccessToken)
+	if targetDevicesAfterRepeatResp.Code != 1000 {
+		t.Fatalf("target homeDevices after idempotent change code = %d, want 1000", targetDevicesAfterRepeatResp.Code)
+	}
+	if err := json.Unmarshal(targetDevicesAfterRepeatResp.Data, &devices); err != nil {
+		t.Fatalf("unmarshal target homeDevices after idempotent change response: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("target homeDevices after idempotent change length = %d, want 1", len(devices))
+	}
+
+	missingHomeResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"uuid": "home-change-uuid-1",
+	}, "Bearer "+registered.AccessToken)
+	if missingHomeResp.Code != 2000 {
+		t.Fatalf("missing homeChange home_id code = %d, want 2000", missingHomeResp.Code)
+	}
+
+	missingUUIDResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": targetHomeID,
+	}, "Bearer "+registered.AccessToken)
+	if missingUUIDResp.Code != 2000 {
+		t.Fatalf("missing homeChange uuid code = %d, want 2000", missingUUIDResp.Code)
+	}
+
+	missingDeviceResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": targetHomeID,
+		"uuid":    "device-missing",
+	}, "Bearer "+registered.AccessToken)
+	if missingDeviceResp.Code != 4001 {
+		t.Fatalf("missing device homeChange code = %d, want 4001", missingDeviceResp.Code)
+	}
+
+	unattachedUUID := "home-change-unattached"
+	insertOwnedDeviceForTest(t, application, registered.UID, unattachedUUID, "home-change-device-002", "Unattached Device")
+	unattachedResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": targetHomeID,
+		"uuid":    unattachedUUID,
+	}, "Bearer "+registered.AccessToken)
+	if unattachedResp.Code != 4002 {
+		t.Fatalf("unattached homeChange code = %d, want 4002", unattachedResp.Code)
+	}
+
+	missingTargetHomeResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": "h_missing",
+		"uuid":    "home-change-uuid-1",
+	}, "Bearer "+registered.AccessToken)
+	if missingTargetHomeResp.Code != 3001 {
+		t.Fatalf("missing target homeChange code = %d, want 3001", missingTargetHomeResp.Code)
+	}
+
+	foreignUUID := "foreign-home-change-device"
+	insertOwnedDeviceForTest(t, application, other.UID, foreignUUID, "foreign-home-change-001", "Foreign Device")
+	otherHomeID := createHomeForTest(t, application, other.AccessToken, "Other Owner Home")
+	addDeviceToHomeForTest(t, application, other.AccessToken, otherHomeID, foreignUUID)
+
+	foreignDeviceResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": targetHomeID,
+		"uuid":    foreignUUID,
+	}, "Bearer "+registered.AccessToken)
+	if foreignDeviceResp.Code != 4002 {
+		t.Fatalf("foreign device homeChange code = %d, want 4002", foreignDeviceResp.Code)
+	}
+
+	sourceForbiddenUUID := "source-forbidden-device"
+	insertOwnedDeviceForTest(t, application, registered.UID, sourceForbiddenUUID, "source-forbidden-001", "Source Forbidden Device")
+	attachDeviceToHomeRawForTest(t, application, otherHomeID, sourceForbiddenUUID)
+	sourceForbiddenResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": targetHomeID,
+		"uuid":    sourceForbiddenUUID,
+	}, "Bearer "+registered.AccessToken)
+	if sourceForbiddenResp.Code != 3002 {
+		t.Fatalf("source hidden homeChange code = %d, want 3002", sourceForbiddenResp.Code)
+	}
+
+	targetOwnerHomeID := createHomeForTest(t, application, registered.AccessToken, "Target Owner Only Home")
+	addHomeMemberForTest(t, application, targetOwnerHomeID, other.UID, 2)
+	otherSourceHomeID := createHomeForTest(t, application, other.AccessToken, "Other Source Home")
+	otherOwnedChangeUUID := "other-owned-change-device"
+	insertOwnedDeviceForTest(t, application, other.UID, otherOwnedChangeUUID, "other-owned-change-001", "Other Owned Change")
+	addDeviceToHomeForTest(t, application, other.AccessToken, otherSourceHomeID, otherOwnedChangeUUID)
+	targetForbiddenResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeChange", map[string]any{
+		"home_id": targetOwnerHomeID,
+		"uuid":    otherOwnedChangeUUID,
+	}, "Bearer "+other.AccessToken)
+	if targetForbiddenResp.Code != 3002 {
+		t.Fatalf("target non-owner homeChange code = %d, want 3002", targetForbiddenResp.Code)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 
@@ -1894,5 +2037,27 @@ func addHomeMemberForTest(t *testing.T, application *App, homeBusinessID, uid st
 	}
 	if err := application.DB().Create(&member).Error; err != nil {
 		t.Fatalf("create home_member fixture: %v", err)
+	}
+}
+
+func attachDeviceToHomeRawForTest(t *testing.T, application *App, homeBusinessID, uuid string) {
+	t.Helper()
+
+	var home homemodel.Home
+	if err := application.DB().Where("home_id = ?", homeBusinessID).Take(&home).Error; err != nil {
+		t.Fatalf("find home for raw home_device fixture: %v", err)
+	}
+
+	var device devicemodel.Device
+	if err := application.DB().Where("uuid = ?", uuid).Take(&device).Error; err != nil {
+		t.Fatalf("find device for raw home_device fixture: %v", err)
+	}
+
+	link := devicemodel.HomeDevice{
+		HomeID:   home.ID,
+		DeviceID: device.ID,
+	}
+	if err := application.DB().Create(&link).Error; err != nil {
+		t.Fatalf("create raw home_device fixture: %v", err)
 	}
 }

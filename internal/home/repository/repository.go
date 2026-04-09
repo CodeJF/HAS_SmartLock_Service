@@ -82,6 +82,29 @@ func (r *Repository) CreateHomeDevice(link *devicemodel.HomeDevice) error {
 	return r.db.Create(link).Error
 }
 
+func (r *Repository) FindHomeMembershipByInternalHomeIDAndUserID(homeID, userID uint) (*HomeWithMember, error) {
+	var row struct {
+		Home homemodel.Home `gorm:"embedded;embeddedPrefix:home_"`
+		Role int
+	}
+
+	err := r.db.Table("home_members").
+		Select(
+			"homes.id as home_id, homes.home_id as home_home_id, homes.owner_user_id as home_owner_user_id, homes.name as home_name, homes.location as home_location, homes.create_time as home_create_time, homes.created_at as home_created_at, homes.updated_at as home_updated_at, homes.deleted_at as home_deleted_at, home_members.role as role",
+		).
+		Joins("JOIN homes ON homes.id = home_members.home_id").
+		Where("homes.id = ? AND home_members.user_id = ? AND home_members.deleted_at IS NULL AND homes.deleted_at IS NULL", homeID, userID).
+		Take(&row).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &HomeWithMember{
+		Home: row.Home,
+		Role: row.Role,
+	}, nil
+}
+
 func (r *Repository) ListHomesByUserID(userID uint) ([]HomeWithMember, error) {
 	var rows []struct {
 		Home homemodel.Home `gorm:"embedded;embeddedPrefix:home_"`
@@ -234,6 +257,12 @@ func (r *Repository) SoftDeleteHomeByInternalID(id uint, now time.Time) error {
 func (r *Repository) SoftDeleteHomeMembersByInternalHomeID(homeID uint, now time.Time) error {
 	return r.db.Model(&homemodel.HomeMember{}).
 		Where("home_id = ? AND deleted_at IS NULL", homeID).
+		Update("deleted_at", now).Error
+}
+
+func (r *Repository) SoftDeleteHomeDeviceByID(id uint, now time.Time) error {
+	return r.db.Model(&devicemodel.HomeDevice{}).
+		Where("id = ? AND deleted_at IS NULL", id).
 		Update("deleted_at", now).Error
 }
 

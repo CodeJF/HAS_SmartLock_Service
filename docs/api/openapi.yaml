@@ -949,6 +949,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/homeShare:
+    post:
+      tags:
+        - Home
+      summary: 邀请分享家庭
+      operationId: homeShare
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版仅家庭 owner 可邀请；不允许邀请自己；目标用户已在家庭中或已存在待处理邀请时返回失败。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HomeShareRequest'
+            example:
+              home_id: '{{home_id}}'
+              username: '{{username}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
   /v1/device/homeDelete:
     delete:
       tags:
@@ -1371,6 +1406,16 @@ components:
         home_id:
           type: string
         uuid:
+          type: string
+    HomeShareRequest:
+      type: object
+      required:
+        - home_id
+        - username
+      properties:
+        home_id:
+          type: string
+        username:
           type: string
     UpNameRequest:
       type: object

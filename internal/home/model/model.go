@@ -28,3 +28,15 @@ type HomeMember struct {
 	UpdatedAt time.Time
 	DeletedAt *time.Time `gorm:"index"`
 }
+
+type HomeShareInvite struct {
+	ID         uint   `gorm:"primaryKey"`
+	MsgID      string `gorm:"size:64;uniqueIndex;not null"`
+	HomeID     uint   `gorm:"index;not null"`
+	FromUserID uint   `gorm:"index;not null"`
+	ToUserID   uint   `gorm:"index;not null"`
+	Accept     int    `gorm:"not null;default:0"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  *time.Time `gorm:"index"`
+}

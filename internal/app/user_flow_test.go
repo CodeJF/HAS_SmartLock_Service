@@ -31,6 +31,7 @@ type envelope struct {
 
 type tokenResponse struct {
 	UID          string `json:"uid"`
+	Username     string `json:"-"`
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	IsDebug      int    `json:"is_debug"`
@@ -1619,6 +1620,97 @@ func TestHomeChangeFlow(t *testing.T) {
 	}
 }
 
+func TestHomeShareFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "home-share-owner@example.com")
+	member := registerUserForTest(t, application, "home-share-member@example.com")
+	outsider := registerUserForTest(t, application, "home-share-outsider@example.com")
+
+	homeID := createHomeForTest(t, application, owner.AccessToken, "Share Home")
+
+	shareResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":   homeID,
+		"username":  outsider.Username,
+	}, "Bearer "+owner.AccessToken)
+	if shareResp.Code != 1000 {
+		t.Fatalf("homeShare code = %d, want 1000", shareResp.Code)
+	}
+
+	assertHomeShareInviteExists(t, application, homeID, owner.UID, outsider.UID)
+
+	duplicateResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  homeID,
+		"username": outsider.Username,
+	}, "Bearer "+owner.AccessToken)
+	if duplicateResp.Code != 3003 {
+		t.Fatalf("duplicate homeShare code = %d, want 3003", duplicateResp.Code)
+	}
+
+	selfResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  homeID,
+		"username": owner.Username,
+	}, "Bearer "+owner.AccessToken)
+	if selfResp.Code != 3003 {
+		t.Fatalf("self homeShare code = %d, want 3003", selfResp.Code)
+	}
+
+	addHomeMemberForTest(t, application, homeID, member.UID, 2)
+	existingMemberResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  homeID,
+		"username": member.Username,
+	}, "Bearer "+owner.AccessToken)
+	if existingMemberResp.Code != 3003 {
+		t.Fatalf("existing member homeShare code = %d, want 3003", existingMemberResp.Code)
+	}
+}
+
+func TestHomeShareFailures(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "home-share-fail-owner@example.com")
+	member := registerUserForTest(t, application, "home-share-fail-member@example.com")
+
+	homeID := createHomeForTest(t, application, owner.AccessToken, "Share Fail Home")
+	addHomeMemberForTest(t, application, homeID, member.UID, 2)
+
+	missingHomeResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"username": member.Username,
+	}, "Bearer "+owner.AccessToken)
+	if missingHomeResp.Code != 2000 {
+		t.Fatalf("missing homeShare home_id code = %d, want 2000", missingHomeResp.Code)
+	}
+
+	missingUsernameResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id": homeID,
+	}, "Bearer "+owner.AccessToken)
+	if missingUsernameResp.Code != 2000 {
+		t.Fatalf("missing homeShare username code = %d, want 2000", missingUsernameResp.Code)
+	}
+
+	nonOwnerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  homeID,
+		"username": owner.Username,
+	}, "Bearer "+member.AccessToken)
+	if nonOwnerResp.Code != 3002 {
+		t.Fatalf("non-owner homeShare code = %d, want 3002", nonOwnerResp.Code)
+	}
+
+	missingHomeOwnerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  "h_missing",
+		"username": owner.Username,
+	}, "Bearer "+owner.AccessToken)
+	if missingHomeOwnerResp.Code != 3001 {
+		t.Fatalf("missing home homeShare code = %d, want 3001", missingHomeOwnerResp.Code)
+	}
+
+	missingUserResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  homeID,
+		"username": "missing@example.com",
+	}, "Bearer "+owner.AccessToken)
+	if missingUserResp.Code != 2003 {
+		t.Fatalf("missing target user homeShare code = %d, want 2003", missingUserResp.Code)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 
@@ -1714,7 +1806,7 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 func cleanupTables(t *testing.T, database *gorm.DB) {
 	t.Helper()
 
-	for _, table := range []string{"home_devices", "devices", "home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
+	for _, table := range []string{"home_share_invites", "home_devices", "devices", "home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
 		if err := database.Exec("DELETE FROM " + table).Error; err != nil {
 			t.Fatalf("cleanup table %s: %v", table, err)
 		}
@@ -1956,6 +2048,7 @@ func registerUserForTest(t *testing.T, application *App, username string) tokenR
 	if err := json.Unmarshal(registerResp.Data, &registered); err != nil {
 		t.Fatalf("unmarshal register response: %v", err)
 	}
+	registered.Username = username
 
 	return registered
 }
@@ -2059,5 +2152,37 @@ func attachDeviceToHomeRawForTest(t *testing.T, application *App, homeBusinessID
 	}
 	if err := application.DB().Create(&link).Error; err != nil {
 		t.Fatalf("create raw home_device fixture: %v", err)
+	}
+}
+
+func assertHomeShareInviteExists(t *testing.T, application *App, homeBusinessID, fromUID, toUID string) {
+	t.Helper()
+
+	var home homemodel.Home
+	if err := application.DB().Where("home_id = ?", homeBusinessID).Take(&home).Error; err != nil {
+		t.Fatalf("find home for invite assertion: %v", err)
+	}
+
+	var fromUser usermodel.User
+	if err := application.DB().Where("uid = ?", fromUID).Take(&fromUser).Error; err != nil {
+		t.Fatalf("find source user for invite assertion: %v", err)
+	}
+
+	var toUser usermodel.User
+	if err := application.DB().Where("uid = ?", toUID).Take(&toUser).Error; err != nil {
+		t.Fatalf("find target user for invite assertion: %v", err)
+	}
+
+	var invite homemodel.HomeShareInvite
+	if err := application.DB().
+		Where("home_id = ? AND from_user_id = ? AND to_user_id = ? AND deleted_at IS NULL", home.ID, fromUser.ID, toUser.ID).
+		Take(&invite).Error; err != nil {
+		t.Fatalf("find home share invite: %v", err)
+	}
+	if invite.MsgID == "" {
+		t.Fatalf("home share invite msg_id should not be empty")
+	}
+	if invite.Accept != 0 {
+		t.Fatalf("home share invite accept = %d, want 0", invite.Accept)
 	}
 }

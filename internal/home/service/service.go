@@ -19,6 +19,7 @@ var (
 	ErrUserNotFound     = errors.New("user not found")
 	ErrHomeNotFound     = errors.New("home not found")
 	ErrHomeForbidden    = errors.New("home forbidden")
+	ErrHomeShareInvalid = errors.New("home share invalid")
 	ErrDeviceNotFound   = errors.New("device not found")
 	ErrDeviceForbidden  = errors.New("device forbidden")
 	ErrHomeCreateFailed = errors.New("home create failed")
@@ -26,6 +27,7 @@ var (
 
 type Clock func() time.Time
 type HomeIDGenerator func() string
+type ShareMessageIDGenerator func() string
 
 type Service struct {
 	homeRepo        *homerepo.Repository
@@ -34,6 +36,7 @@ type Service struct {
 	cfg             config.Config
 	clock           Clock
 	homeIDGenerator HomeIDGenerator
+	shareMsgIDGen   ShareMessageIDGenerator
 }
 
 type HomeItem struct {
@@ -81,6 +84,9 @@ func New(homeRepo *homerepo.Repository, deviceRepo *devicerepo.Repository, userR
 		homeIDGenerator: func() string {
 			return fmt.Sprintf("h_%d", time.Now().UnixNano())
 		},
+		shareMsgIDGen: func() string {
+			return fmt.Sprintf("msg_%d", time.Now().UnixNano())
+		},
 	}
 }
 
@@ -91,6 +97,11 @@ func (s *Service) WithClock(clock Clock) *Service {
 
 func (s *Service) WithHomeIDGenerator(generator HomeIDGenerator) *Service {
 	s.homeIDGenerator = generator
+	return s
+}
+
+func (s *Service) WithShareMessageIDGenerator(generator ShareMessageIDGenerator) *Service {
+	s.shareMsgIDGen = generator
 	return s
 }
 
@@ -398,6 +409,62 @@ func (s *Service) ChangeDeviceHome(uid, targetHomeID, uuid string) error {
 			HomeID:   targetHomeWithMember.Home.ID,
 			DeviceID: device.ID,
 		})
+	})
+}
+
+func (s *Service) ShareHome(uid, homeID, username string) error {
+	if strings.TrimSpace(uid) == "" || strings.TrimSpace(homeID) == "" || strings.TrimSpace(username) == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.userRepo.FindUserByUID(strings.TrimSpace(uid))
+	if err != nil {
+		if userrepo.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	homeWithMember, err := s.homeRepo.FindHomeMembershipByHomeIDAndUserID(strings.TrimSpace(homeID), user.ID)
+	if err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrHomeNotFound
+		}
+		return err
+	}
+	if homeWithMember.Role != homemodel.RoleOwner {
+		return ErrHomeForbidden
+	}
+
+	targetUser, err := s.userRepo.FindUserByUsername(strings.TrimSpace(username))
+	if err != nil {
+		if userrepo.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+	if targetUser.ID == user.ID {
+		return ErrHomeShareInvalid
+	}
+
+	if _, err := s.homeRepo.FindHomeMembershipByInternalHomeIDAndUserID(homeWithMember.Home.ID, targetUser.ID); err == nil {
+		return ErrHomeShareInvalid
+	} else if !homerepo.IsNotFound(err) {
+		return err
+	}
+
+	if _, err := s.homeRepo.FindActiveHomeShareInviteByInternalHomeIDAndToUserID(homeWithMember.Home.ID, targetUser.ID); err == nil {
+		return ErrHomeShareInvalid
+	} else if !homerepo.IsNotFound(err) {
+		return err
+	}
+
+	return s.homeRepo.CreateHomeShareInvite(&homemodel.HomeShareInvite{
+		MsgID:      s.shareMsgIDGen(),
+		HomeID:     homeWithMember.Home.ID,
+		FromUserID: user.ID,
+		ToUserID:   targetUser.ID,
+		Accept:     0,
 	})
 }
 

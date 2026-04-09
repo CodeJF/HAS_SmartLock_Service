@@ -35,6 +35,11 @@ type homeChangeRequest struct {
 	UUID   string `json:"uuid"`
 }
 
+type homeShareRequest struct {
+	HomeID   string `json:"home_id"`
+	Username string `json:"username"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -49,6 +54,7 @@ func RegisterHomeRoutes(group *gin.RouterGroup, handler *Handler, protocolMiddle
 	deviceGroup.POST("/homeUpdate", handler.UpdateHome)
 	deviceGroup.POST("/homeAddDevice", handler.AddDeviceToHome)
 	deviceGroup.POST("/homeChange", handler.ChangeDeviceHome)
+	deviceGroup.POST("/homeShare", handler.ShareHome)
 	deviceGroup.DELETE("/homeDelete", handler.DeleteHome)
 }
 
@@ -135,6 +141,20 @@ func (h *Handler) ChangeDeviceHome(c *gin.Context) {
 	httpx.Success(c, nil)
 }
 
+func (h *Handler) ShareHome(c *gin.Context) {
+	var req homeShareRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.ShareHome(auth.UIDFromContext(c), req.HomeID, req.Username); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
 func (h *Handler) DeleteHome(c *gin.Context) {
 	if err := h.service.DeleteHome(auth.UIDFromContext(c), c.Query("home_id")); err != nil {
 		renderServiceError(c, err)
@@ -153,6 +173,8 @@ func renderServiceError(c *gin.Context, err error) {
 		httpx.Fail(c, 3001, "home not found", nil)
 	case errors.Is(err, service.ErrHomeForbidden):
 		httpx.Fail(c, 3002, "home forbidden", nil)
+	case errors.Is(err, service.ErrHomeShareInvalid):
+		httpx.Fail(c, 3003, "home share invalid", nil)
 	case errors.Is(err, service.ErrDeviceNotFound):
 		httpx.Fail(c, 4001, "device not found", nil)
 	case errors.Is(err, service.ErrDeviceForbidden):

@@ -60,6 +60,10 @@ func (r *Repository) CreateHomeMember(member *homemodel.HomeMember) error {
 	return r.db.Create(member).Error
 }
 
+func (r *Repository) CreateHomeShareInvite(invite *homemodel.HomeShareInvite) error {
+	return r.db.Create(invite).Error
+}
+
 func (r *Repository) FindActiveHomeDeviceByInternalDeviceID(deviceID uint) (*devicemodel.HomeDevice, error) {
 	var link devicemodel.HomeDevice
 	err := r.db.Where("device_id = ? AND deleted_at IS NULL", deviceID).Take(&link).Error
@@ -103,6 +107,17 @@ func (r *Repository) FindHomeMembershipByInternalHomeIDAndUserID(homeID, userID 
 		Home: row.Home,
 		Role: row.Role,
 	}, nil
+}
+
+func (r *Repository) FindActiveHomeShareInviteByInternalHomeIDAndToUserID(homeID, toUserID uint) (*homemodel.HomeShareInvite, error) {
+	var invite homemodel.HomeShareInvite
+	err := r.db.
+		Where("home_id = ? AND to_user_id = ? AND deleted_at IS NULL AND accept = 0", homeID, toUserID).
+		Take(&invite).Error
+	if err != nil {
+		return nil, err
+	}
+	return &invite, nil
 }
 
 func (r *Repository) ListHomesByUserID(userID uint) ([]HomeWithMember, error) {

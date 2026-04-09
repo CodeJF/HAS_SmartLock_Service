@@ -25,6 +25,11 @@ type homeUpdateRequest struct {
 	Location string `json:"location"`
 }
 
+type homeAddDeviceRequest struct {
+	HomeID string `json:"home_id"`
+	UUID   string `json:"uuid"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -37,6 +42,7 @@ func RegisterHomeRoutes(group *gin.RouterGroup, handler *Handler, protocolMiddle
 	deviceGroup.GET("/homeDevices", handler.ListHomeDevices)
 	deviceGroup.GET("/homeUsers", handler.ListHomeUsers)
 	deviceGroup.POST("/homeUpdate", handler.UpdateHome)
+	deviceGroup.POST("/homeAddDevice", handler.AddDeviceToHome)
 	deviceGroup.DELETE("/homeDelete", handler.DeleteHome)
 }
 
@@ -95,6 +101,20 @@ func (h *Handler) UpdateHome(c *gin.Context) {
 	httpx.Success(c, nil)
 }
 
+func (h *Handler) AddDeviceToHome(c *gin.Context) {
+	var req homeAddDeviceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.AddDeviceToHome(auth.UIDFromContext(c), req.HomeID, req.UUID); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
 func (h *Handler) DeleteHome(c *gin.Context) {
 	if err := h.service.DeleteHome(auth.UIDFromContext(c), c.Query("home_id")); err != nil {
 		renderServiceError(c, err)
@@ -113,6 +133,10 @@ func renderServiceError(c *gin.Context, err error) {
 		httpx.Fail(c, 3001, "home not found", nil)
 	case errors.Is(err, service.ErrHomeForbidden):
 		httpx.Fail(c, 3002, "home forbidden", nil)
+	case errors.Is(err, service.ErrDeviceNotFound):
+		httpx.Fail(c, 4001, "device not found", nil)
+	case errors.Is(err, service.ErrDeviceForbidden):
+		httpx.Fail(c, 4002, "device forbidden", nil)
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 5000,

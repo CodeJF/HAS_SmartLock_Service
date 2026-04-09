@@ -879,6 +879,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/homeAddDevice:
+    post:
+      tags:
+        - Home
+      summary: 添加设备到家庭
+      operationId: homeAddDevice
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版仅家庭 owner 可添加设备；设备必须属于当前登录用户；已在当前家庭时按成功处理；已挂其他家庭时返回失败。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HomeAddDeviceRequest'
+            example:
+              home_id: '{{home_id}}'
+              uuid: '{{uuid}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
   /v1/device/homeDelete:
     delete:
       tags:
@@ -1281,6 +1316,16 @@ components:
         name:
           type: string
         location:
+          type: string
+    HomeAddDeviceRequest:
+      type: object
+      required:
+        - home_id
+        - uuid
+      properties:
+        home_id:
+          type: string
+        uuid:
           type: string
     UpNameRequest:
       type: object

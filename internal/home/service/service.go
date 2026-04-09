@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	devicemodel "has-smartlock-service/internal/device/model"
+	devicerepo "has-smartlock-service/internal/device/repository"
 	homemodel "has-smartlock-service/internal/home/model"
 	homerepo "has-smartlock-service/internal/home/repository"
 	"has-smartlock-service/internal/pkg/config"
@@ -17,6 +19,8 @@ var (
 	ErrUserNotFound     = errors.New("user not found")
 	ErrHomeNotFound     = errors.New("home not found")
 	ErrHomeForbidden    = errors.New("home forbidden")
+	ErrDeviceNotFound   = errors.New("device not found")
+	ErrDeviceForbidden  = errors.New("device forbidden")
 	ErrHomeCreateFailed = errors.New("home create failed")
 )
 
@@ -25,6 +29,7 @@ type HomeIDGenerator func() string
 
 type Service struct {
 	homeRepo        *homerepo.Repository
+	deviceRepo      *devicerepo.Repository
 	userRepo        *userrepo.Repository
 	cfg             config.Config
 	clock           Clock
@@ -66,12 +71,13 @@ type HomeDeviceItem struct {
 	State         DeviceState `json:"State"`
 }
 
-func New(homeRepo *homerepo.Repository, userRepo *userrepo.Repository, cfg config.Config) *Service {
+func New(homeRepo *homerepo.Repository, deviceRepo *devicerepo.Repository, userRepo *userrepo.Repository, cfg config.Config) *Service {
 	return &Service{
-		homeRepo: homeRepo,
-		userRepo: userRepo,
-		cfg:      cfg,
-		clock:    time.Now,
+		homeRepo:   homeRepo,
+		deviceRepo: deviceRepo,
+		userRepo:   userRepo,
+		cfg:        cfg,
+		clock:      time.Now,
 		homeIDGenerator: func() string {
 			return fmt.Sprintf("h_%d", time.Now().UnixNano())
 		},
@@ -268,6 +274,64 @@ func (s *Service) UpdateHome(uid, homeID, name, location string) error {
 	return s.homeRepo.UpdateHomeByInternalID(homeWithMember.Home.ID, map[string]any{
 		"name":     strings.TrimSpace(name),
 		"location": strings.TrimSpace(location),
+	})
+}
+
+func (s *Service) AddDeviceToHome(uid, homeID, uuid string) error {
+	if strings.TrimSpace(uid) == "" || strings.TrimSpace(homeID) == "" || strings.TrimSpace(uuid) == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.userRepo.FindUserByUID(strings.TrimSpace(uid))
+	if err != nil {
+		if userrepo.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	homeWithMember, err := s.homeRepo.FindHomeMembershipByHomeIDAndUserID(strings.TrimSpace(homeID), user.ID)
+	if err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrHomeNotFound
+		}
+		return err
+	}
+	if homeWithMember.Role != homemodel.RoleOwner {
+		return ErrHomeForbidden
+	}
+
+	device, err := s.deviceRepo.FindDeviceByUUID(strings.TrimSpace(uuid))
+	if err != nil {
+		if devicerepo.IsNotFound(err) {
+			return ErrDeviceNotFound
+		}
+		return err
+	}
+	if device.UID != user.UID {
+		return ErrDeviceForbidden
+	}
+
+	if _, err := s.homeRepo.FindActiveHomeDeviceByInternalHomeIDAndDeviceID(homeWithMember.Home.ID, device.ID); err == nil {
+		return nil
+	} else if !homerepo.IsNotFound(err) {
+		return err
+	}
+
+	activeLink, err := s.homeRepo.FindActiveHomeDeviceByInternalDeviceID(device.ID)
+	if err == nil {
+		if activeLink.HomeID == homeWithMember.Home.ID {
+			return nil
+		}
+		return ErrDeviceForbidden
+	}
+	if !homerepo.IsNotFound(err) {
+		return err
+	}
+
+	return s.homeRepo.CreateHomeDevice(&devicemodel.HomeDevice{
+		HomeID:   homeWithMember.Home.ID,
+		DeviceID: device.ID,
 	})
 }
 

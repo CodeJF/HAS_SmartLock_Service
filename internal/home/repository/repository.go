@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	devicemodel "has-smartlock-service/internal/device/model"
 	homemodel "has-smartlock-service/internal/home/model"
 	usermodel "has-smartlock-service/internal/user/model"
 )
@@ -57,6 +58,28 @@ func (r *Repository) CreateHome(home *homemodel.Home) error {
 
 func (r *Repository) CreateHomeMember(member *homemodel.HomeMember) error {
 	return r.db.Create(member).Error
+}
+
+func (r *Repository) FindActiveHomeDeviceByInternalDeviceID(deviceID uint) (*devicemodel.HomeDevice, error) {
+	var link devicemodel.HomeDevice
+	err := r.db.Where("device_id = ? AND deleted_at IS NULL", deviceID).Take(&link).Error
+	if err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+func (r *Repository) FindActiveHomeDeviceByInternalHomeIDAndDeviceID(homeID, deviceID uint) (*devicemodel.HomeDevice, error) {
+	var link devicemodel.HomeDevice
+	err := r.db.Where("home_id = ? AND device_id = ? AND deleted_at IS NULL", homeID, deviceID).Take(&link).Error
+	if err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+func (r *Repository) CreateHomeDevice(link *devicemodel.HomeDevice) error {
+	return r.db.Create(link).Error
 }
 
 func (r *Repository) ListHomesByUserID(userID uint) ([]HomeWithMember, error) {

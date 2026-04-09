@@ -110,3 +110,49 @@
 - 时间戳校验当前固定允许偏差 5 分钟；超出时返回 `1004`。
 - 设备端 `POST /v1/device/bind`、`POST /v1/device/login` 也必须真实实现，且签名规则与用户端不同：`sign` 使用 `model_secret`，配置来源固定为 JSON 环境变量 `DEVICE_MODEL_SECRETS`。
 - `docs/api/openapi.yaml` 已同步补充 Header 参数与设备端 `bind/login` 合同壳，但仅改 OpenAPI 不足以联调成功，代码侧必须同步协议层。
+
+## 当前记忆（2026-04-08 更新）
+
+- 今天已完成协议层真实改造：用户端已实现接口统一读取并校验 Header `appid`、`app_version`、`phone_code`、`timestamp`、`request_id`、`sign`，登录态统一从 Header `access_token` 读取。
+- 当前服务端已不再使用 `Authorization: Bearer` 作为正式登录态入口；相关测试与联调方式都应改为 `access_token` Header。
+- 用户端签名规则已根据旧版本后端实际行为回退兼容，当前真实规则为：`METHOD + "&" + access_token + app_version + appid + phone_code + request_id + timestamp + "&" + canonicalParams`，其中 `access_token` 仅在请求头实际携带时参与。
+- 当前用户端签名结果不是“原始 HMAC 字节直接 Base64”，而是兼容旧版的：先做 `HMAC-SHA256`，转为小写 hex 字符串，再对该 hex 字符串做 Base64。
+- 当前设备端签名规则与用户端不同，仍保持：`METHOD + "&" + model + request_id + timestamp + uuid + "&" + canonicalParams`，并直接对原始 `HMAC-SHA256` 结果做 Base64。
+- 今天已真实实现设备端接口：
+  - `POST /v1/device/bind`
+  - `POST /v1/device/login`
+- 当前设备端最小链路已可用：`bind` 会创建或刷新最小设备记录；`login` 会校验设备存在且归属该 `uid`。
+- 当前设备模块第一批基础接口也已完成：
+  - `GET /v1/device/homeDevices`
+  - `GET /v1/device/list`
+  - `GET /v1/device/newList`
+  - `POST /v1/device/upName`
+- 当前 `device/login` 的请求体已与主合同重新对齐，正确 body 为：
+  - `zone`
+  - `version`
+  不再使用旧的 `a` 占位字段。
+- 当前 OpenAPI 已同步显式建模用户端公共 Header，并已补入设备端 `bind/login`；Apifox 导入后，Header 的默认值展示不完全可靠，联调时应依赖环境变量和前置脚本，而不是指望界面自动回填。
+- 当前 Apifox 联调经验已明确：
+  - 前置脚本执行时，`pm.request.body.raw` 仍可能是 `{{变量}}` 模板，签名前必须先用 `pm.variables.replaceIn(...)` 展开真实值。
+  - `pm` 是 Apifox/Postman 提供的脚本运行时上下文；`pm.environment` 用于读写环境变量；`pm.variables.replaceIn(...)` 用于把 `{{变量名}}` 模板替换成当前环境里的实际值。
+- 当前数据库流程、协议层、设备端基础链路和测试均已跑通；最近相关提交包括：
+  - `68f8224 feat: add home module and migrate to sql migrations`
+  - `d8503ad feat: add home device list skeleton`
+  - `ce69e5a feat: align protocol signing and device auth flow`
+  - `93601e5 fix: align device login payload with contract`
+
+## 当前待推进（2026-04-08 更新）
+
+- 下一步优先实现 `POST /v1/device/homeAddDevice`，把当前已有的 `bind -> homeDevices/list/newList/upName` 串成完整设备挂家庭闭环。
+- `homeAddDevice` 第一版规则已经定下：
+  - 只有家庭 owner 可以添加设备
+  - 设备必须属于当前登录用户本人
+  - 设备已在当前家庭时按幂等成功处理
+  - 设备已挂到其他家庭时返回业务失败
+- 当前 `homeAddDevice` 暂不顺带实现 `homeChange`；本轮不做跨家庭自动迁移、设备分享、复杂权限扩展。
+- `homeAddDevice` 当前预计不新增 migration，优先复用现有 `devices`、`home_devices` 表；去重和冲突先由 service/repository 显式处理。
+- `homeAddDevice` 完成后，下一阶段再考虑：
+  - `POST /v1/device/homeChange`
+  - `GET /v1/device/models`
+  - `GET /v1/device/upgradedVersion`
+  或其他设备域真实能力扩展。

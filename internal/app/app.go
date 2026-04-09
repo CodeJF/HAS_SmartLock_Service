@@ -97,9 +97,9 @@ func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) er
 	cloudService := cloudservice.New(userRepo, stsTokenClient)
 	cloudHandler := cloudhandler.New(cloudService)
 	homeRepo := homerepository.New(database)
-	homeService := homeservice.New(homeRepo, userRepo, cfg)
-	homeHandler := homehandler.New(homeService)
 	deviceRepo := devicerepository.New(database)
+	homeService := homeservice.New(homeRepo, deviceRepo, userRepo, cfg)
+	homeHandler := homehandler.New(homeService)
 	deviceService := deviceservice.New(deviceRepo, homeRepo, userRepo)
 	deviceHandler := devicehandler.New(deviceService)
 

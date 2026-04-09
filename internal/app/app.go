@@ -14,6 +14,8 @@ import (
 	homehandler "has-smartlock-service/internal/home/handler"
 	homerepository "has-smartlock-service/internal/home/repository"
 	homeservice "has-smartlock-service/internal/home/service"
+	messagehandler "has-smartlock-service/internal/message/handler"
+	messageservice "has-smartlock-service/internal/message/service"
 	"has-smartlock-service/internal/pkg/auth"
 	"has-smartlock-service/internal/pkg/config"
 	"has-smartlock-service/internal/pkg/db"
@@ -100,6 +102,8 @@ func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) er
 	deviceRepo := devicerepository.New(database)
 	homeService := homeservice.New(homeRepo, deviceRepo, userRepo, cfg)
 	homeHandler := homehandler.New(homeService)
+	messageService := messageservice.New(homeRepo, userRepo)
+	messageHandler := messagehandler.New(messageService)
 	deviceService := deviceservice.New(deviceRepo, homeRepo, userRepo)
 	deviceHandler := devicehandler.New(deviceService)
 
@@ -120,6 +124,7 @@ func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) er
 	handler.RegisterUserRoutes(v1, userHandler, userProtocolMiddleware, authMiddleware)
 	cloudhandler.RegisterCloudRoutes(v1, cloudHandler, userProtocolMiddleware, authMiddleware)
 	homehandler.RegisterHomeRoutes(v1, homeHandler, userProtocolMiddleware, authMiddleware)
+	messagehandler.RegisterMessageRoutes(v1, messageHandler, userProtocolMiddleware, authMiddleware)
 	devicehandler.RegisterDeviceRoutes(v1, deviceHandler, userProtocolMiddleware, deviceProtocolMiddleware, authMiddleware)
 	return nil
 }

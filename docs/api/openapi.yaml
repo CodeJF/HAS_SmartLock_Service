@@ -984,6 +984,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/homeShareFeedback:
+    post:
+      tags:
+        - Home
+      summary: 家庭分享反馈
+      operationId: homeShareFeedback
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        `msg_id` 来源于 `GET /v1/message/list`；仅消息接收方本人可反馈；仅待处理消息可反馈。
+        反馈成功后，邀请发起人的消息列表会新增一条 `type=2` 家庭分享结果消息。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HomeShareFeedbackRequest'
+            example:
+              msg_id: '{{message_id}}'
+              accept: 1
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/homeShareRemove:
+    post:
+      tags:
+        - Home
+      summary: 移除家庭成员
+      operationId: homeShareRemove
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版仅家庭 owner 可移除成员；不允许移除自己；移除成功后，被移除成员会收到一条 `type=3` 家庭移除通知消息。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HomeShareRemoveRequest'
+            example:
+              home_id: '{{home_id}}'
+              uid: '{{uid}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
   /v1/device/homeDelete:
     delete:
       tags:
@@ -1075,6 +1146,98 @@ paths:
             example:
               username: '{{username}}'
               code: '{{code}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/message/list:
+    get:
+      tags:
+        - Message
+      summary: 消息列表
+      operationId: messageList
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版返回家庭分享邀请消息（type=1）、家庭分享结果消息（type=2）与家庭移除通知消息（type=3）。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: start_id
+          required: false
+          schema:
+            type: string
+            example: '{{message_id}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageListEnvelope'
+  /v1/message/unreadNum:
+    get:
+      tags:
+        - Message
+      summary: 未读消息数量
+      operationId: messageUnreadNum
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版统计 `type=1`、`type=2` 与 `type=3` 三类家庭消息的未读数。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadNumEnvelope'
+  /v1/message/read:
+    post:
+      tags:
+        - Message
+      summary: 标记消息已读
+      operationId: messageRead
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        `message_id` 不传时，标记当前用户全部消息已读。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageReadRequest'
+            example:
+              message_id: '{{message_id}}'
       responses:
         '200':
           description: 成功
@@ -1417,6 +1580,34 @@ components:
           type: string
         username:
           type: string
+    HomeShareFeedbackRequest:
+      type: object
+      required:
+        - msg_id
+        - accept
+      properties:
+        msg_id:
+          type: string
+        accept:
+          type: integer
+          enum:
+            - 1
+            - 2
+    HomeShareRemoveRequest:
+      type: object
+      required:
+        - home_id
+        - uid
+      properties:
+        home_id:
+          type: string
+        uid:
+          type: string
+    MessageReadRequest:
+      type: object
+      properties:
+        message_id:
+          type: string
     UpNameRequest:
       type: object
       required:
@@ -1709,3 +1900,77 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/HomeUser'
+    MessagePayload:
+      type: object
+      required:
+        - status
+      properties:
+        home_id:
+          type: string
+        home_name:
+          type: string
+        status:
+          type: integer
+        uid:
+          type: string
+        username:
+          type: string
+        device_name:
+          type: string
+        uuid:
+          type: string
+    Message:
+      type: object
+      required:
+        - id
+        - type
+        - time
+        - is_read
+        - payload
+      properties:
+        id:
+          type: string
+        uid:
+          type: string
+        type:
+          type: integer
+        time:
+          type: integer
+          format: int64
+        is_read:
+          type: integer
+        payload:
+          $ref: '#/components/schemas/MessagePayload'
+    MessageListData:
+      type: object
+      required:
+        - has
+        - list
+      properties:
+        has:
+          type: boolean
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+    MessageListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MessageListData'
+    UnreadNumData:
+      type: object
+      required:
+        - number
+      properties:
+        number:
+          type: integer
+    UnreadNumEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UnreadNumData'

@@ -104,6 +104,32 @@ type newDeviceResponse struct {
 	DeleteTime    int64  `json:"delete_time"`
 }
 
+type messagePayloadResponse struct {
+	HomeID   string `json:"home_id"`
+	HomeName string `json:"home_name"`
+	Status   int    `json:"status"`
+	UID      string `json:"uid"`
+	Username string `json:"username"`
+}
+
+type messageItemResponse struct {
+	ID      string                 `json:"id"`
+	UID     string                 `json:"uid"`
+	Type    int                    `json:"type"`
+	Time    int64                  `json:"time"`
+	IsRead  int                    `json:"is_read"`
+	Payload messagePayloadResponse `json:"payload"`
+}
+
+type messageListResponse struct {
+	Has  bool                  `json:"has"`
+	List []messageItemResponse `json:"list"`
+}
+
+type unreadNumResponse struct {
+	Number int64 `json:"number"`
+}
+
 type requestOptions struct {
 	AccessToken       string
 	SkipUserHeaders   bool
@@ -1629,8 +1655,8 @@ func TestHomeShareFlow(t *testing.T) {
 	homeID := createHomeForTest(t, application, owner.AccessToken, "Share Home")
 
 	shareResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
-		"home_id":   homeID,
-		"username":  outsider.Username,
+		"home_id":  homeID,
+		"username": outsider.Username,
 	}, "Bearer "+owner.AccessToken)
 	if shareResp.Code != 1000 {
 		t.Fatalf("homeShare code = %d, want 1000", shareResp.Code)
@@ -1708,6 +1734,587 @@ func TestHomeShareFailures(t *testing.T) {
 	}, "Bearer "+owner.AccessToken)
 	if missingUserResp.Code != 2003 {
 		t.Fatalf("missing target user homeShare code = %d, want 2003", missingUserResp.Code)
+	}
+}
+
+func TestMessageListAndHomeShareFeedbackAcceptFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "message-share-owner@example.com")
+	invitee := registerUserForTest(t, application, "message-share-invitee@example.com")
+	member := registerUserForTest(t, application, "message-share-member@example.com")
+
+	homeID := createHomeForTest(t, application, owner.AccessToken, "Message Share Home")
+	addHomeMemberForTest(t, application, homeID, member.UID, homemodel.RoleMember)
+
+	shareResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  homeID,
+		"username": invitee.Username,
+	}, "Bearer "+owner.AccessToken)
+	if shareResp.Code != 1000 {
+		t.Fatalf("homeShare code = %d, want 1000", shareResp.Code)
+	}
+
+	messageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+invitee.AccessToken)
+	if messageListResp.Code != 1000 {
+		t.Fatalf("message/list code = %d, want 1000", messageListResp.Code)
+	}
+
+	var listData messageListResponse
+	if err := json.Unmarshal(messageListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal message/list response: %v", err)
+	}
+	if listData.Has {
+		t.Fatalf("message/list has = true, want false")
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("message/list length = %d, want 1", len(listData.List))
+	}
+	msg := listData.List[0]
+	if msg.Type != 1 {
+		t.Fatalf("message type = %d, want 1", msg.Type)
+	}
+	if msg.IsRead != 0 {
+		t.Fatalf("message is_read = %d, want 0", msg.IsRead)
+	}
+	if msg.Payload.HomeID != homeID {
+		t.Fatalf("message payload.home_id = %q, want %q", msg.Payload.HomeID, homeID)
+	}
+	if msg.Payload.HomeName != "Message Share Home" {
+		t.Fatalf("message payload.home_name = %q, want Message Share Home", msg.Payload.HomeName)
+	}
+	if msg.Payload.Status != 0 {
+		t.Fatalf("message payload.status = %d, want 0", msg.Payload.Status)
+	}
+	if msg.Payload.UID != owner.UID {
+		t.Fatalf("message payload.uid = %q, want %q", msg.Payload.UID, owner.UID)
+	}
+	if msg.Payload.Username != owner.Username {
+		t.Fatalf("message payload.username = %q, want %q", msg.Payload.Username, owner.Username)
+	}
+
+	feedbackResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"msg_id": msg.ID,
+		"accept": 1,
+	}, "Bearer "+invitee.AccessToken)
+	if feedbackResp.Code != 1000 {
+		t.Fatalf("homeShareFeedback accept code = %d, want 1000", feedbackResp.Code)
+	}
+
+	homeUsersResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers?home_id="+homeID, nil, "Bearer "+owner.AccessToken)
+	if homeUsersResp.Code != 1000 {
+		t.Fatalf("homeUsers after accept code = %d, want 1000", homeUsersResp.Code)
+	}
+	var users []homeUserResponse
+	if err := json.Unmarshal(homeUsersResp.Data, &users); err != nil {
+		t.Fatalf("unmarshal homeUsers after accept response: %v", err)
+	}
+	if len(users) != 3 {
+		t.Fatalf("homeUsers after accept length = %d, want 3", len(users))
+	}
+	foundInvitee := false
+	for _, item := range users {
+		if item.UID == invitee.UID {
+			foundInvitee = true
+			if item.Role != homemodel.RoleMember {
+				t.Fatalf("invitee role = %d, want %d", item.Role, homemodel.RoleMember)
+			}
+		}
+	}
+	if !foundInvitee {
+		t.Fatalf("invitee not found in homeUsers after accept")
+	}
+
+	messageListAfterResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+invitee.AccessToken)
+	if messageListAfterResp.Code != 1000 {
+		t.Fatalf("message/list after accept code = %d, want 1000", messageListAfterResp.Code)
+	}
+	if err := json.Unmarshal(messageListAfterResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal message/list after accept response: %v", err)
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("message/list after accept length = %d, want 1", len(listData.List))
+	}
+	if listData.List[0].IsRead != 1 {
+		t.Fatalf("message is_read after accept = %d, want 1", listData.List[0].IsRead)
+	}
+	if listData.List[0].Payload.Status != 1 {
+		t.Fatalf("message payload.status after accept = %d, want 1", listData.List[0].Payload.Status)
+	}
+
+	ownerMessageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+owner.AccessToken)
+	if ownerMessageListResp.Code != 1000 {
+		t.Fatalf("owner message/list after accept code = %d, want 1000", ownerMessageListResp.Code)
+	}
+	if err := json.Unmarshal(ownerMessageListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal owner message/list after accept response: %v", err)
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("owner message/list after accept length = %d, want 1", len(listData.List))
+	}
+	if listData.List[0].Type != 2 {
+		t.Fatalf("owner feedback message type = %d, want 2", listData.List[0].Type)
+	}
+	if listData.List[0].UID != owner.UID {
+		t.Fatalf("owner feedback message uid = %q, want %q", listData.List[0].UID, owner.UID)
+	}
+	if listData.List[0].Payload.UID != invitee.UID {
+		t.Fatalf("owner feedback payload.uid = %q, want %q", listData.List[0].Payload.UID, invitee.UID)
+	}
+	if listData.List[0].Payload.Username != invitee.Username {
+		t.Fatalf("owner feedback payload.username = %q, want %q", listData.List[0].Payload.Username, invitee.Username)
+	}
+	if listData.List[0].Payload.Status != 1 {
+		t.Fatalf("owner feedback payload.status = %d, want 1", listData.List[0].Payload.Status)
+	}
+	if listData.List[0].IsRead != 0 {
+		t.Fatalf("owner feedback is_read = %d, want 0", listData.List[0].IsRead)
+	}
+
+	memberMessageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+member.AccessToken)
+	if memberMessageListResp.Code != 1000 {
+		t.Fatalf("member message/list code = %d, want 1000", memberMessageListResp.Code)
+	}
+	if err := json.Unmarshal(memberMessageListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal member message/list response: %v", err)
+	}
+	if len(listData.List) != 0 {
+		t.Fatalf("member message/list length = %d, want 0", len(listData.List))
+	}
+
+	repeatFeedbackResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"msg_id": msg.ID,
+		"accept": 1,
+	}, "Bearer "+invitee.AccessToken)
+	if repeatFeedbackResp.Code != 3003 {
+		t.Fatalf("repeat homeShareFeedback code = %d, want 3003", repeatFeedbackResp.Code)
+	}
+}
+
+func TestHomeShareFeedbackRejectAndFailures(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "message-share-fail-owner@example.com")
+	invitee := registerUserForTest(t, application, "message-share-fail-invitee@example.com")
+	other := registerUserForTest(t, application, "message-share-fail-other@example.com")
+
+	homeID := createHomeForTest(t, application, owner.AccessToken, "Reject Share Home")
+
+	shareResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  homeID,
+		"username": invitee.Username,
+	}, "Bearer "+owner.AccessToken)
+	if shareResp.Code != 1000 {
+		t.Fatalf("homeShare code = %d, want 1000", shareResp.Code)
+	}
+
+	messageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+invitee.AccessToken)
+	if messageListResp.Code != 1000 {
+		t.Fatalf("message/list code = %d, want 1000", messageListResp.Code)
+	}
+	var listData messageListResponse
+	if err := json.Unmarshal(messageListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal message/list response: %v", err)
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("message/list length = %d, want 1", len(listData.List))
+	}
+	msgID := listData.List[0].ID
+
+	missingMsgIDResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"accept": 1,
+	}, "Bearer "+invitee.AccessToken)
+	if missingMsgIDResp.Code != 2000 {
+		t.Fatalf("missing msg_id homeShareFeedback code = %d, want 2000", missingMsgIDResp.Code)
+	}
+
+	invalidAcceptResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"msg_id": msgID,
+		"accept": 3,
+	}, "Bearer "+invitee.AccessToken)
+	if invalidAcceptResp.Code != 2000 {
+		t.Fatalf("invalid accept homeShareFeedback code = %d, want 2000", invalidAcceptResp.Code)
+	}
+
+	forbiddenResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"msg_id": msgID,
+		"accept": 1,
+	}, "Bearer "+other.AccessToken)
+	if forbiddenResp.Code != 3002 {
+		t.Fatalf("forbidden homeShareFeedback code = %d, want 3002", forbiddenResp.Code)
+	}
+
+	rejectResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"msg_id": msgID,
+		"accept": 2,
+	}, "Bearer "+invitee.AccessToken)
+	if rejectResp.Code != 1000 {
+		t.Fatalf("reject homeShareFeedback code = %d, want 1000", rejectResp.Code)
+	}
+
+	homeUsersResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers?home_id="+homeID, nil, "Bearer "+owner.AccessToken)
+	if homeUsersResp.Code != 1000 {
+		t.Fatalf("homeUsers after reject code = %d, want 1000", homeUsersResp.Code)
+	}
+	var users []homeUserResponse
+	if err := json.Unmarshal(homeUsersResp.Data, &users); err != nil {
+		t.Fatalf("unmarshal homeUsers after reject response: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("homeUsers after reject length = %d, want 1", len(users))
+	}
+
+	messageListAfterResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+invitee.AccessToken)
+	if messageListAfterResp.Code != 1000 {
+		t.Fatalf("message/list after reject code = %d, want 1000", messageListAfterResp.Code)
+	}
+	if err := json.Unmarshal(messageListAfterResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal message/list after reject response: %v", err)
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("message/list after reject length = %d, want 1", len(listData.List))
+	}
+	if listData.List[0].IsRead != 1 {
+		t.Fatalf("message is_read after reject = %d, want 1", listData.List[0].IsRead)
+	}
+	if listData.List[0].Payload.Status != 2 {
+		t.Fatalf("message payload.status after reject = %d, want 2", listData.List[0].Payload.Status)
+	}
+
+	ownerMessageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+owner.AccessToken)
+	if ownerMessageListResp.Code != 1000 {
+		t.Fatalf("owner message/list after reject code = %d, want 1000", ownerMessageListResp.Code)
+	}
+	if err := json.Unmarshal(ownerMessageListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal owner message/list after reject response: %v", err)
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("owner message/list after reject length = %d, want 1", len(listData.List))
+	}
+	if listData.List[0].Type != 2 {
+		t.Fatalf("owner reject feedback message type = %d, want 2", listData.List[0].Type)
+	}
+	if listData.List[0].UID != owner.UID {
+		t.Fatalf("owner reject feedback uid = %q, want %q", listData.List[0].UID, owner.UID)
+	}
+	if listData.List[0].Payload.UID != invitee.UID {
+		t.Fatalf("owner reject feedback payload.uid = %q, want %q", listData.List[0].Payload.UID, invitee.UID)
+	}
+	if listData.List[0].Payload.Username != invitee.Username {
+		t.Fatalf("owner reject feedback payload.username = %q, want %q", listData.List[0].Payload.Username, invitee.Username)
+	}
+	if listData.List[0].Payload.Status != 2 {
+		t.Fatalf("owner reject feedback payload.status = %d, want 2", listData.List[0].Payload.Status)
+	}
+
+	repeatRejectResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"msg_id": msgID,
+		"accept": 2,
+	}, "Bearer "+invitee.AccessToken)
+	if repeatRejectResp.Code != 3003 {
+		t.Fatalf("repeat reject homeShareFeedback code = %d, want 3003", repeatRejectResp.Code)
+	}
+
+	missingInviteResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"msg_id": "msg_missing",
+		"accept": 1,
+	}, "Bearer "+invitee.AccessToken)
+	if missingInviteResp.Code != 3003 {
+		t.Fatalf("missing invite homeShareFeedback code = %d, want 3003", missingInviteResp.Code)
+	}
+}
+
+func TestMessageUnreadNumAndReadFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "message-read-owner@example.com")
+	invitee := registerUserForTest(t, application, "message-read-invitee@example.com")
+	other := registerUserForTest(t, application, "message-read-other@example.com")
+
+	homeID := createHomeForTest(t, application, owner.AccessToken, "Message Read Home")
+
+	shareResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShare", map[string]any{
+		"home_id":  homeID,
+		"username": invitee.Username,
+	}, "Bearer "+owner.AccessToken)
+	if shareResp.Code != 1000 {
+		t.Fatalf("homeShare code = %d, want 1000", shareResp.Code)
+	}
+
+	unreadResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/unreadNum", nil, "Bearer "+invitee.AccessToken)
+	if unreadResp.Code != 1000 {
+		t.Fatalf("invitee unreadNum code = %d, want 1000", unreadResp.Code)
+	}
+	var unread unreadNumResponse
+	if err := json.Unmarshal(unreadResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal invitee unreadNum response: %v", err)
+	}
+	if unread.Number != 1 {
+		t.Fatalf("invitee unreadNum = %d, want 1", unread.Number)
+	}
+
+	messageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+invitee.AccessToken)
+	if messageListResp.Code != 1000 {
+		t.Fatalf("invitee message/list code = %d, want 1000", messageListResp.Code)
+	}
+	var listData messageListResponse
+	if err := json.Unmarshal(messageListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal invitee message/list response: %v", err)
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("invitee message/list length = %d, want 1", len(listData.List))
+	}
+	inviteMsgID := listData.List[0].ID
+
+	readOneResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/message/read", map[string]any{
+		"message_id": inviteMsgID,
+	}, "Bearer "+invitee.AccessToken)
+	if readOneResp.Code != 1000 {
+		t.Fatalf("invitee read single code = %d, want 1000", readOneResp.Code)
+	}
+
+	unreadAfterSingleResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/unreadNum", nil, "Bearer "+invitee.AccessToken)
+	if unreadAfterSingleResp.Code != 1000 {
+		t.Fatalf("invitee unreadNum after single read code = %d, want 1000", unreadAfterSingleResp.Code)
+	}
+	if err := json.Unmarshal(unreadAfterSingleResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal invitee unreadNum after single read response: %v", err)
+	}
+	if unread.Number != 0 {
+		t.Fatalf("invitee unreadNum after single read = %d, want 0", unread.Number)
+	}
+
+	feedbackResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareFeedback", map[string]any{
+		"msg_id": inviteMsgID,
+		"accept": 1,
+	}, "Bearer "+invitee.AccessToken)
+	if feedbackResp.Code != 1000 {
+		t.Fatalf("homeShareFeedback code = %d, want 1000", feedbackResp.Code)
+	}
+
+	ownerUnreadResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/unreadNum", nil, "Bearer "+owner.AccessToken)
+	if ownerUnreadResp.Code != 1000 {
+		t.Fatalf("owner unreadNum code = %d, want 1000", ownerUnreadResp.Code)
+	}
+	if err := json.Unmarshal(ownerUnreadResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal owner unreadNum response: %v", err)
+	}
+	if unread.Number != 1 {
+		t.Fatalf("owner unreadNum = %d, want 1", unread.Number)
+	}
+
+	ownerListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+owner.AccessToken)
+	if ownerListResp.Code != 1000 {
+		t.Fatalf("owner message/list code = %d, want 1000", ownerListResp.Code)
+	}
+	if err := json.Unmarshal(ownerListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal owner message/list response: %v", err)
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("owner message/list length = %d, want 1", len(listData.List))
+	}
+	feedbackMsgID := listData.List[0].ID
+
+	forbiddenReadResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/message/read", map[string]any{
+		"message_id": feedbackMsgID,
+	}, "Bearer "+other.AccessToken)
+	if forbiddenReadResp.Code != 6002 {
+		t.Fatalf("forbidden read code = %d, want 6002", forbiddenReadResp.Code)
+	}
+
+	readAllResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/message/read", map[string]any{}, "Bearer "+owner.AccessToken)
+	if readAllResp.Code != 1000 {
+		t.Fatalf("owner read all code = %d, want 1000", readAllResp.Code)
+	}
+
+	ownerUnreadAfterAllResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/unreadNum", nil, "Bearer "+owner.AccessToken)
+	if ownerUnreadAfterAllResp.Code != 1000 {
+		t.Fatalf("owner unreadNum after read all code = %d, want 1000", ownerUnreadAfterAllResp.Code)
+	}
+	if err := json.Unmarshal(ownerUnreadAfterAllResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal owner unreadNum after read all response: %v", err)
+	}
+	if unread.Number != 0 {
+		t.Fatalf("owner unreadNum after read all = %d, want 0", unread.Number)
+	}
+
+	missingReadResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/message/read", map[string]any{
+		"message_id": "msg_missing",
+	}, "Bearer "+owner.AccessToken)
+	if missingReadResp.Code != 6001 {
+		t.Fatalf("missing read message code = %d, want 6001", missingReadResp.Code)
+	}
+}
+
+func TestHomeShareRemoveAndMessageFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "message-remove-owner@example.com")
+	member := registerUserForTest(t, application, "message-remove-member@example.com")
+	outsider := registerUserForTest(t, application, "message-remove-outsider@example.com")
+
+	homeID := createHomeForTest(t, application, owner.AccessToken, "Remove Member Home")
+	addHomeMemberForTest(t, application, homeID, member.UID, homemodel.RoleMember)
+
+	removeResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareRemove", map[string]any{
+		"home_id": homeID,
+		"uid":     member.UID,
+	}, "Bearer "+owner.AccessToken)
+	if removeResp.Code != 1000 {
+		t.Fatalf("homeShareRemove code = %d, want 1000", removeResp.Code)
+	}
+
+	homeUsersResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/homeUsers?home_id="+homeID, nil, "Bearer "+owner.AccessToken)
+	if homeUsersResp.Code != 1000 {
+		t.Fatalf("homeUsers after remove code = %d, want 1000", homeUsersResp.Code)
+	}
+	var users []homeUserResponse
+	if err := json.Unmarshal(homeUsersResp.Data, &users); err != nil {
+		t.Fatalf("unmarshal homeUsers after remove response: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("homeUsers after remove length = %d, want 1", len(users))
+	}
+	if users[0].UID != owner.UID {
+		t.Fatalf("remaining member uid = %q, want %q", users[0].UID, owner.UID)
+	}
+
+	memberMessageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+member.AccessToken)
+	if memberMessageListResp.Code != 1000 {
+		t.Fatalf("member message/list after remove code = %d, want 1000", memberMessageListResp.Code)
+	}
+	var listData messageListResponse
+	if err := json.Unmarshal(memberMessageListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal member message/list after remove response: %v", err)
+	}
+	if len(listData.List) != 1 {
+		t.Fatalf("member message/list after remove length = %d, want 1", len(listData.List))
+	}
+	msg := listData.List[0]
+	if msg.Type != 3 {
+		t.Fatalf("remove message type = %d, want 3", msg.Type)
+	}
+	if msg.UID != member.UID {
+		t.Fatalf("remove message uid = %q, want %q", msg.UID, member.UID)
+	}
+	if msg.Payload.HomeID != homeID {
+		t.Fatalf("remove payload.home_id = %q, want %q", msg.Payload.HomeID, homeID)
+	}
+	if msg.Payload.HomeName != "Remove Member Home" {
+		t.Fatalf("remove payload.home_name = %q, want Remove Member Home", msg.Payload.HomeName)
+	}
+	if msg.Payload.UID != owner.UID {
+		t.Fatalf("remove payload.uid = %q, want %q", msg.Payload.UID, owner.UID)
+	}
+	if msg.Payload.Username != owner.Username {
+		t.Fatalf("remove payload.username = %q, want %q", msg.Payload.Username, owner.Username)
+	}
+	if msg.Payload.Status != 0 {
+		t.Fatalf("remove payload.status = %d, want 0", msg.Payload.Status)
+	}
+	if msg.IsRead != 0 {
+		t.Fatalf("remove message is_read = %d, want 0", msg.IsRead)
+	}
+
+	outsiderMessageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+outsider.AccessToken)
+	if outsiderMessageListResp.Code != 1000 {
+		t.Fatalf("outsider message/list code = %d, want 1000", outsiderMessageListResp.Code)
+	}
+	if err := json.Unmarshal(outsiderMessageListResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal outsider message/list response: %v", err)
+	}
+	if len(listData.List) != 0 {
+		t.Fatalf("outsider message/list length = %d, want 0", len(listData.List))
+	}
+
+	unreadResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/unreadNum", nil, "Bearer "+member.AccessToken)
+	if unreadResp.Code != 1000 {
+		t.Fatalf("member unreadNum after remove code = %d, want 1000", unreadResp.Code)
+	}
+	var unread unreadNumResponse
+	if err := json.Unmarshal(unreadResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal member unreadNum after remove response: %v", err)
+	}
+	if unread.Number != 1 {
+		t.Fatalf("member unreadNum after remove = %d, want 1", unread.Number)
+	}
+
+	readResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/message/read", map[string]any{
+		"message_id": msg.ID,
+	}, "Bearer "+member.AccessToken)
+	if readResp.Code != 1000 {
+		t.Fatalf("member read remove message code = %d, want 1000", readResp.Code)
+	}
+
+	unreadAfterReadResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/unreadNum", nil, "Bearer "+member.AccessToken)
+	if unreadAfterReadResp.Code != 1000 {
+		t.Fatalf("member unreadNum after read remove code = %d, want 1000", unreadAfterReadResp.Code)
+	}
+	if err := json.Unmarshal(unreadAfterReadResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal member unreadNum after read remove response: %v", err)
+	}
+	if unread.Number != 0 {
+		t.Fatalf("member unreadNum after read remove = %d, want 0", unread.Number)
+	}
+}
+
+func TestHomeShareRemoveFailures(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "remove-fail-owner@example.com")
+	member := registerUserForTest(t, application, "remove-fail-member@example.com")
+	other := registerUserForTest(t, application, "remove-fail-other@example.com")
+
+	homeID := createHomeForTest(t, application, owner.AccessToken, "Remove Fail Home")
+	addHomeMemberForTest(t, application, homeID, member.UID, homemodel.RoleMember)
+
+	missingHomeResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareRemove", map[string]any{
+		"uid": member.UID,
+	}, "Bearer "+owner.AccessToken)
+	if missingHomeResp.Code != 2000 {
+		t.Fatalf("missing homeShareRemove home_id code = %d, want 2000", missingHomeResp.Code)
+	}
+
+	missingUIDResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareRemove", map[string]any{
+		"home_id": homeID,
+	}, "Bearer "+owner.AccessToken)
+	if missingUIDResp.Code != 2000 {
+		t.Fatalf("missing homeShareRemove uid code = %d, want 2000", missingUIDResp.Code)
+	}
+
+	nonOwnerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareRemove", map[string]any{
+		"home_id": homeID,
+		"uid":     owner.UID,
+	}, "Bearer "+member.AccessToken)
+	if nonOwnerResp.Code != 3002 {
+		t.Fatalf("non-owner homeShareRemove code = %d, want 3002", nonOwnerResp.Code)
+	}
+
+	missingHomeOwnerResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareRemove", map[string]any{
+		"home_id": "h_missing",
+		"uid":     member.UID,
+	}, "Bearer "+owner.AccessToken)
+	if missingHomeOwnerResp.Code != 3001 {
+		t.Fatalf("missing home homeShareRemove code = %d, want 3001", missingHomeOwnerResp.Code)
+	}
+
+	missingUserResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareRemove", map[string]any{
+		"home_id": homeID,
+		"uid":     "u_missing",
+	}, "Bearer "+owner.AccessToken)
+	if missingUserResp.Code != 2003 {
+		t.Fatalf("missing target user homeShareRemove code = %d, want 2003", missingUserResp.Code)
+	}
+
+	selfResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareRemove", map[string]any{
+		"home_id": homeID,
+		"uid":     owner.UID,
+	}, "Bearer "+owner.AccessToken)
+	if selfResp.Code != 3003 {
+		t.Fatalf("self homeShareRemove code = %d, want 3003", selfResp.Code)
+	}
+
+	notMemberResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/homeShareRemove", map[string]any{
+		"home_id": homeID,
+		"uid":     other.UID,
+	}, "Bearer "+owner.AccessToken)
+	if notMemberResp.Code != 3003 {
+		t.Fatalf("not member homeShareRemove code = %d, want 3003", notMemberResp.Code)
 	}
 }
 
@@ -1806,7 +2413,7 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 func cleanupTables(t *testing.T, database *gorm.DB) {
 	t.Helper()
 
-	for _, table := range []string{"home_share_invites", "home_devices", "devices", "home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
+	for _, table := range []string{"home_share_remove_messages", "home_share_feedback_messages", "home_share_invites", "home_devices", "devices", "home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
 		if err := database.Exec("DELETE FROM " + table).Error; err != nil {
 			t.Fatalf("cleanup table %s: %v", table, err)
 		}
@@ -2184,5 +2791,8 @@ func assertHomeShareInviteExists(t *testing.T, application *App, homeBusinessID,
 	}
 	if invite.Accept != 0 {
 		t.Fatalf("home share invite accept = %d, want 0", invite.Accept)
+	}
+	if invite.IsRead != 0 {
+		t.Fatalf("home share invite is_read = %d, want 0", invite.IsRead)
 	}
 }

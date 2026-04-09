@@ -40,6 +40,16 @@ type homeShareRequest struct {
 	Username string `json:"username"`
 }
 
+type homeShareFeedbackRequest struct {
+	MsgID  string `json:"msg_id"`
+	Accept int    `json:"accept"`
+}
+
+type homeShareRemoveRequest struct {
+	HomeID string `json:"home_id"`
+	UID    string `json:"uid"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -55,6 +65,8 @@ func RegisterHomeRoutes(group *gin.RouterGroup, handler *Handler, protocolMiddle
 	deviceGroup.POST("/homeAddDevice", handler.AddDeviceToHome)
 	deviceGroup.POST("/homeChange", handler.ChangeDeviceHome)
 	deviceGroup.POST("/homeShare", handler.ShareHome)
+	deviceGroup.POST("/homeShareFeedback", handler.HomeShareFeedback)
+	deviceGroup.POST("/homeShareRemove", handler.HomeShareRemove)
 	deviceGroup.DELETE("/homeDelete", handler.DeleteHome)
 }
 
@@ -149,6 +161,40 @@ func (h *Handler) ShareHome(c *gin.Context) {
 	}
 
 	if err := h.service.ShareHome(auth.UIDFromContext(c), req.HomeID, req.Username); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) HomeShareFeedback(c *gin.Context) {
+	var req homeShareFeedbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.HomeShareFeedback(auth.UIDFromContext(c), service.HomeShareFeedbackInput{
+		MsgID:  req.MsgID,
+		Accept: req.Accept,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) HomeShareRemove(c *gin.Context) {
+	var req homeShareRemoveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.HomeShareRemove(auth.UIDFromContext(c), service.HomeShareRemoveInput{
+		HomeID: req.HomeID,
+		UID:    req.UID,
+	}); err != nil {
 		renderServiceError(c, err)
 		return
 	}

@@ -74,6 +74,16 @@ type HomeDeviceItem struct {
 	State         DeviceState `json:"State"`
 }
 
+type HomeShareFeedbackInput struct {
+	MsgID  string
+	Accept int
+}
+
+type HomeShareRemoveInput struct {
+	HomeID string
+	UID    string
+}
+
 func New(homeRepo *homerepo.Repository, deviceRepo *devicerepo.Repository, userRepo *userrepo.Repository, cfg config.Config) *Service {
 	return &Service{
 		homeRepo:   homeRepo,
@@ -465,6 +475,138 @@ func (s *Service) ShareHome(uid, homeID, username string) error {
 		FromUserID: user.ID,
 		ToUserID:   targetUser.ID,
 		Accept:     0,
+		IsRead:     0,
+	})
+}
+
+func (s *Service) HomeShareFeedback(uid string, input HomeShareFeedbackInput) error {
+	if strings.TrimSpace(uid) == "" || strings.TrimSpace(input.MsgID) == "" {
+		return ErrInvalidInput
+	}
+	if input.Accept != 1 && input.Accept != 2 {
+		return ErrInvalidInput
+	}
+
+	user, err := s.userRepo.FindUserByUID(strings.TrimSpace(uid))
+	if err != nil {
+		if userrepo.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	invite, err := s.homeRepo.FindHomeShareInviteByMsgID(strings.TrimSpace(input.MsgID))
+	if err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrHomeShareInvalid
+		}
+		return err
+	}
+	if invite.ToUserID != user.ID {
+		return ErrHomeForbidden
+	}
+	if invite.Accept != 0 {
+		return ErrHomeShareInvalid
+	}
+
+	home, err := s.homeRepo.FindHomeByInternalID(invite.HomeID)
+	if err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrHomeNotFound
+		}
+		return err
+	}
+
+	if _, err := s.homeRepo.FindHomeMembershipByInternalHomeIDAndUserID(home.ID, user.ID); err == nil {
+		return ErrHomeShareInvalid
+	} else if !homerepo.IsNotFound(err) {
+		return err
+	}
+
+	return s.homeRepo.WithTx(func(txRepo *homerepo.Repository) error {
+		attrs := map[string]any{
+			"accept":  input.Accept,
+			"is_read": 1,
+		}
+		if input.Accept == 1 {
+			member := &homemodel.HomeMember{
+				HomeID: home.ID,
+				UserID: user.ID,
+				Role:   homemodel.RoleMember,
+				Accept: 1,
+			}
+			if err := txRepo.CreateHomeMember(member); err != nil {
+				return err
+			}
+		}
+		if err := txRepo.UpdateHomeShareInviteByID(invite.ID, attrs); err != nil {
+			return err
+		}
+		return txRepo.CreateHomeShareFeedbackMessage(&homemodel.HomeShareFeedbackMessage{
+			MsgID:      s.shareMsgIDGen(),
+			HomeID:     invite.HomeID,
+			FromUserID: user.ID,
+			ToUserID:   invite.FromUserID,
+			Status:     input.Accept,
+			IsRead:     0,
+		})
+	})
+}
+
+func (s *Service) HomeShareRemove(uid string, input HomeShareRemoveInput) error {
+	if strings.TrimSpace(uid) == "" || strings.TrimSpace(input.HomeID) == "" || strings.TrimSpace(input.UID) == "" {
+		return ErrInvalidInput
+	}
+
+	user, err := s.userRepo.FindUserByUID(strings.TrimSpace(uid))
+	if err != nil {
+		if userrepo.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	homeWithMember, err := s.homeRepo.FindHomeMembershipByHomeIDAndUserID(strings.TrimSpace(input.HomeID), user.ID)
+	if err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrHomeNotFound
+		}
+		return err
+	}
+	if homeWithMember.Role != homemodel.RoleOwner {
+		return ErrHomeForbidden
+	}
+
+	targetUser, err := s.userRepo.FindUserByUID(strings.TrimSpace(input.UID))
+	if err != nil {
+		if userrepo.IsNotFound(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+	if targetUser.ID == user.ID {
+		return ErrHomeShareInvalid
+	}
+
+	if _, err := s.homeRepo.FindHomeMembershipByInternalHomeIDAndUserID(homeWithMember.Home.ID, targetUser.ID); err != nil {
+		if homerepo.IsNotFound(err) {
+			return ErrHomeShareInvalid
+		}
+		return err
+	}
+
+	now := s.clock()
+	return s.homeRepo.WithTx(func(txRepo *homerepo.Repository) error {
+		if err := txRepo.SoftDeleteHomeMemberByInternalHomeIDAndUserID(homeWithMember.Home.ID, targetUser.ID, now); err != nil {
+			return err
+		}
+		return txRepo.CreateHomeShareRemoveMessage(&homemodel.HomeShareRemoveMessage{
+			MsgID:      s.shareMsgIDGen(),
+			HomeID:     homeWithMember.Home.ID,
+			FromUserID: user.ID,
+			ToUserID:   targetUser.ID,
+			IsRead:     0,
+		})
 	})
 }
 

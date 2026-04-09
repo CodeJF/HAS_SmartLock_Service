@@ -3,7 +3,8 @@ package model
 import "time"
 
 const (
-	RoleOwner = 1
+	RoleOwner  = 1
+	RoleMember = 2
 )
 
 type Home struct {
@@ -36,6 +37,32 @@ type HomeShareInvite struct {
 	FromUserID uint   `gorm:"index;not null"`
 	ToUserID   uint   `gorm:"index;not null"`
 	Accept     int    `gorm:"not null;default:0"`
+	IsRead     int    `gorm:"not null;default:0"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  *time.Time `gorm:"index"`
+}
+
+type HomeShareFeedbackMessage struct {
+	ID         uint   `gorm:"primaryKey"`
+	MsgID      string `gorm:"size:64;uniqueIndex;not null"`
+	HomeID     uint   `gorm:"index;not null"`
+	FromUserID uint   `gorm:"index;not null"`
+	ToUserID   uint   `gorm:"index;not null"`
+	Status     int    `gorm:"not null"`
+	IsRead     int    `gorm:"not null;default:0"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  *time.Time `gorm:"index"`
+}
+
+type HomeShareRemoveMessage struct {
+	ID         uint   `gorm:"primaryKey"`
+	MsgID      string `gorm:"size:64;uniqueIndex;not null"`
+	HomeID     uint   `gorm:"index;not null"`
+	FromUserID uint   `gorm:"index;not null"`
+	ToUserID   uint   `gorm:"index;not null"`
+	IsRead     int    `gorm:"not null;default:0"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	DeletedAt  *time.Time `gorm:"index"`

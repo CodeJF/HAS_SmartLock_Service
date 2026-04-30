@@ -11,6 +11,9 @@ import (
 	devicehandler "has-smartlock-service/internal/device/handler"
 	devicerepository "has-smartlock-service/internal/device/repository"
 	deviceservice "has-smartlock-service/internal/device/service"
+	eventhandler "has-smartlock-service/internal/event/handler"
+	eventrepository "has-smartlock-service/internal/event/repository"
+	eventservice "has-smartlock-service/internal/event/service"
 	homehandler "has-smartlock-service/internal/home/handler"
 	homerepository "has-smartlock-service/internal/home/repository"
 	homeservice "has-smartlock-service/internal/home/service"
@@ -102,10 +105,13 @@ func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) er
 	deviceRepo := devicerepository.New(database)
 	homeService := homeservice.New(homeRepo, deviceRepo, userRepo, cfg)
 	homeHandler := homehandler.New(homeService)
-	messageService := messageservice.New(homeRepo, userRepo)
+	messageService := messageservice.New(homeRepo, deviceRepo, userRepo)
 	messageHandler := messagehandler.New(messageService)
-	deviceService := deviceservice.New(deviceRepo, homeRepo, userRepo)
+	deviceService := deviceservice.New(deviceRepo, homeRepo, userRepo, cfg)
 	deviceHandler := devicehandler.New(deviceService)
+	eventRepo := eventrepository.New(database)
+	eventService := eventservice.New(eventRepo, deviceRepo, homeRepo, userRepo)
+	eventHandler := eventhandler.New(eventService)
 
 	v1 := router.Group("/v1")
 	userProtocolMiddleware, err := protocol.UserMiddleware(cfg.AppSecretKey, cfg.SignTimestampSkew)
@@ -126,6 +132,7 @@ func registerRoutes(router *gin.Engine, cfg config.Config, database *gorm.DB) er
 	homehandler.RegisterHomeRoutes(v1, homeHandler, userProtocolMiddleware, authMiddleware)
 	messagehandler.RegisterMessageRoutes(v1, messageHandler, userProtocolMiddleware, authMiddleware)
 	devicehandler.RegisterDeviceRoutes(v1, deviceHandler, userProtocolMiddleware, deviceProtocolMiddleware, authMiddleware)
+	eventhandler.RegisterEventRoutes(v1, eventHandler, userProtocolMiddleware, authMiddleware)
 	return nil
 }
 

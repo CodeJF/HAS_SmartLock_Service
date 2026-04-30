@@ -32,6 +32,21 @@ type loginRequest struct {
 	Version string `json:"version"`
 }
 
+type shareRequest struct {
+	UUID     string `json:"uuid"`
+	Username string `json:"username"`
+}
+
+type shareFeedbackRequest struct {
+	MsgID  string `json:"msg_id"`
+	Status int    `json:"status"`
+}
+
+type shareDeleteRequest struct {
+	UID  string `form:"uid"`
+	UUID string `form:"uuid"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -46,7 +61,13 @@ func RegisterDeviceRoutes(group *gin.RouterGroup, handler *Handler, userProtocol
 	deviceGroup.Use(userProtocolMiddleware, authMiddleware)
 	deviceGroup.GET("/list", handler.List)
 	deviceGroup.GET("/newList", handler.NewList)
+	deviceGroup.GET("/models", handler.Models)
 	deviceGroup.POST("/upName", handler.UpdateName)
+	deviceGroup.GET("/upgradedVersion", handler.UpgradedVersion)
+	deviceGroup.POST("/share", handler.Share)
+	deviceGroup.GET("/shareRecords", handler.ShareRecords)
+	deviceGroup.DELETE("/shareDelete", handler.ShareDelete)
+	deviceGroup.POST("/shareFeedback", handler.ShareFeedback)
 }
 
 func (h *Handler) Bind(c *gin.Context) {
@@ -109,6 +130,15 @@ func (h *Handler) NewList(c *gin.Context) {
 	httpx.Success(c, result)
 }
 
+func (h *Handler) Models(c *gin.Context) {
+	result, err := h.service.Models(auth.UIDFromContext(c))
+	if err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, result)
+}
+
 func (h *Handler) UpdateName(c *gin.Context) {
 	var req updateNameRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -117,6 +147,78 @@ func (h *Handler) UpdateName(c *gin.Context) {
 	}
 
 	if err := h.service.UpdateName(auth.UIDFromContext(c), req.UUID, req.Name); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) UpgradedVersion(c *gin.Context) {
+	result, err := h.service.UpgradedVersion(auth.UIDFromContext(c), service.DeviceUpgradeInput{
+		UUID: c.Query("uuid"),
+		Flag: c.Query("flag"),
+	})
+	if err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, result)
+}
+
+func (h *Handler) Share(c *gin.Context) {
+	var req shareRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.Share(auth.UIDFromContext(c), service.DeviceShareInput{
+		UUID:     req.UUID,
+		Username: req.Username,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) ShareRecords(c *gin.Context) {
+	result, err := h.service.ShareRecords(auth.UIDFromContext(c), c.Query("uuid"))
+	if err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, result)
+}
+
+func (h *Handler) ShareDelete(c *gin.Context) {
+	var req shareDeleteRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid query", nil)
+		return
+	}
+
+	if err := h.service.ShareDelete(auth.UIDFromContext(c), service.DeviceShareDeleteInput{
+		UID:  req.UID,
+		UUID: req.UUID,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) ShareFeedback(c *gin.Context) {
+	var req shareFeedbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid request body", nil)
+		return
+	}
+
+	if err := h.service.ShareFeedback(auth.UIDFromContext(c), service.DeviceShareFeedbackInput{
+		MsgID:  req.MsgID,
+		Status: req.Status,
+	}); err != nil {
 		renderServiceError(c, err)
 		return
 	}
@@ -137,6 +239,8 @@ func renderServiceError(c *gin.Context, err error) {
 		httpx.Fail(c, 4001, "device not found", nil)
 	case errors.Is(err, service.ErrDeviceForbidden):
 		httpx.Fail(c, 4002, "device forbidden", nil)
+	case errors.Is(err, service.ErrDeviceShareInvalid):
+		httpx.Fail(c, 4003, "device share invalid", nil)
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 5000,

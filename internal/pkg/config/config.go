@@ -23,6 +23,10 @@ type Config struct {
 	AppSecretKey          string
 	DeviceModelSecretsRaw string
 	DeviceModelSecrets    map[string]string
+	DeviceModelsRaw       string
+	DeviceModels          []DeviceModelConfig
+	DeviceUpgradesRaw     string
+	DeviceUpgrades        []DeviceUpgradeConfig
 	SignTimestampSkew     int
 	OSSEndpoint           string
 	OSSBucketName         string
@@ -35,6 +39,22 @@ type Config struct {
 	OSSSTSRoleARN         string
 	OSSSTSSessionPrefix   string
 	OSSSTSDuration        int
+}
+
+type DeviceModelConfig struct {
+	ModelCode   string `json:"model_code"`
+	Status      int    `json:"status"`
+	ModelName   string `json:"model_name"`
+	Category    string `json:"category"`
+	ShowName    string `json:"show_name"`
+	DefaultName string `json:"default_name"`
+	Thumbnail   string `json:"thumbnail"`
+}
+
+type DeviceUpgradeConfig struct {
+	ModelCode string `json:"model_code"`
+	Flag      string `json:"flag"`
+	Version   string `json:"version"`
 }
 
 func Load() Config {
@@ -52,6 +72,8 @@ func Load() Config {
 		VerificationTTL:       v.GetInt("VERIFICATION_CODE_TTL_SECONDS"),
 		AppSecretKey:          v.GetString("APP_SECRET_KEY"),
 		DeviceModelSecretsRaw: v.GetString("DEVICE_MODEL_SECRETS"),
+		DeviceModelsRaw:       v.GetString("DEVICE_MODELS"),
+		DeviceUpgradesRaw:     v.GetString("DEVICE_UPGRADES"),
 		SignTimestampSkew:     v.GetInt("SIGN_TIMESTAMP_SKEW_SECONDS"),
 		OSSEndpoint:           v.GetString("OSS_ENDPOINT"),
 		OSSBucketName:         v.GetString("OSS_BUCKET_NAME"),
@@ -70,6 +92,18 @@ func Load() Config {
 		modelSecrets := make(map[string]string)
 		if err := json.Unmarshal([]byte(raw), &modelSecrets); err == nil {
 			cfg.DeviceModelSecrets = modelSecrets
+		}
+	}
+	if raw := strings.TrimSpace(cfg.DeviceModelsRaw); raw != "" {
+		var models []DeviceModelConfig
+		if err := json.Unmarshal([]byte(raw), &models); err == nil {
+			cfg.DeviceModels = models
+		}
+	}
+	if raw := strings.TrimSpace(cfg.DeviceUpgradesRaw); raw != "" {
+		var upgrades []DeviceUpgradeConfig
+		if err := json.Unmarshal([]byte(raw), &upgrades); err == nil {
+			cfg.DeviceUpgrades = upgrades
 		}
 	}
 
@@ -118,6 +152,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("VERIFICATION_CODE_TTL_SECONDS", 300)
 	v.SetDefault("APP_SECRET_KEY", "")
 	v.SetDefault("DEVICE_MODEL_SECRETS", "")
+	v.SetDefault("DEVICE_MODELS", "")
+	v.SetDefault("DEVICE_UPGRADES", "")
 	v.SetDefault("SIGN_TIMESTAMP_SKEW_SECONDS", 300)
 	v.SetDefault("OSS_ENDPOINT", "")
 	v.SetDefault("OSS_BUCKET_NAME", "")

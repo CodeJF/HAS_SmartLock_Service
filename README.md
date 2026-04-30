@@ -53,6 +53,8 @@ go run ./cmd/api
 - `VERIFICATION_CODE_TTL_SECONDS`
 - `APP_SECRET_KEY`
 - `DEVICE_MODEL_SECRETS`
+- `DEVICE_MODELS`
+- `DEVICE_UPGRADES`
 - `SIGN_TIMESTAMP_SKEW_SECONDS`
 - `OSS_ENDPOINT`
 - `OSS_BUCKET_NAME`
@@ -76,6 +78,8 @@ MYSQL_DSN=root:password@tcp(127.0.0.1:3306)/has_smartlock_service?charset=utf8mb
 JWT_SECRET=dev-secret-change-me
 APP_SECRET_KEY=replace-with-app-secret
 DEVICE_MODEL_SECRETS={"SL100":"replace-with-model-secret"}
+DEVICE_MODELS=[{"model_code":"SL100","status":1,"model_name":"Smart Lock 100","category":"lock","show_name":"SL100 Smart Lock","default_name":"Door Lock","thumbnail":""}]
+DEVICE_UPGRADES=[{"model_code":"SL100","flag":"firmware","version":"SL100_BP_1.02.00"}]
 SIGN_TIMESTAMP_SKEW_SECONDS=300
 OSS_ENDPOINT=oss-cn-shenzhen.aliyuncs.com
 OSS_BUCKET_NAME=has-smartlock

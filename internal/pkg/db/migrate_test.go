@@ -41,11 +41,11 @@ func TestRunMigrationsIsIdempotent(t *testing.T) {
 	if err := database.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema_migrations: %v", err)
 	}
-	if count != 6 {
-		t.Fatalf("schema_migrations count = %d, want 6", count)
+	if count != 11 {
+		t.Fatalf("schema_migrations count = %d, want 11", count)
 	}
 
-	for _, table := range []string{"users", "verification_codes", "refresh_tokens", "user_clients", "homes", "home_members", "devices", "home_devices", "home_share_invites", "home_share_feedback_messages", "home_share_remove_messages"} {
+	for _, table := range []string{"users", "verification_codes", "refresh_tokens", "user_clients", "homes", "home_members", "devices", "home_devices", "home_share_invites", "home_share_feedback_messages", "home_share_remove_messages", "device_share_invites", "device_share_members", "device_share_feedback_messages", "device_events", "device_event_user_states"} {
 		var exists int
 		if err := database.Raw(
 			"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?",

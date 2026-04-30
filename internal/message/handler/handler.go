@@ -29,6 +29,7 @@ func RegisterMessageRoutes(group *gin.RouterGroup, handler *Handler, protocolMid
 	messageGroup.GET("/list", handler.List)
 	messageGroup.GET("/unreadNum", handler.UnreadNum)
 	messageGroup.POST("/read", handler.Read)
+	messageGroup.DELETE("/delete", handler.Delete)
 }
 
 func (h *Handler) List(c *gin.Context) {
@@ -57,6 +58,20 @@ func (h *Handler) Read(c *gin.Context) {
 	}
 
 	if err := h.service.Read(auth.UIDFromContext(c), req.MessageID); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
+}
+
+func (h *Handler) Delete(c *gin.Context) {
+	messageID := c.Query("message_id")
+	if messageID == "" {
+		httpx.Fail(c, 2000, "message_id is required", nil)
+		return
+	}
+
+	if err := h.service.Delete(auth.UIDFromContext(c), messageID); err != nil {
 		renderServiceError(c, err)
 		return
 	}

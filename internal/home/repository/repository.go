@@ -638,6 +638,24 @@ func (r *Repository) SoftDeleteHomeByInternalID(id uint, now time.Time) error {
 		Update("deleted_at", now).Error
 }
 
+func (r *Repository) SoftDeleteHomeShareInviteByID(id uint, now time.Time) error {
+	return r.db.Model(&homemodel.HomeShareInvite{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Update("deleted_at", now).Error
+}
+
+func (r *Repository) SoftDeleteHomeShareFeedbackMessageByID(id uint, now time.Time) error {
+	return r.db.Model(&homemodel.HomeShareFeedbackMessage{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Update("deleted_at", now).Error
+}
+
+func (r *Repository) SoftDeleteHomeShareRemoveMessageByID(id uint, now time.Time) error {
+	return r.db.Model(&homemodel.HomeShareRemoveMessage{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Update("deleted_at", now).Error
+}
+
 func (r *Repository) SoftDeleteHomeMembersByInternalHomeID(homeID uint, now time.Time) error {
 	return r.db.Model(&homemodel.HomeMember{}).
 		Where("home_id = ? AND deleted_at IS NULL", homeID).

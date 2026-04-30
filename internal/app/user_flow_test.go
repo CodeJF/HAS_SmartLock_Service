@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	devicemodel "has-smartlock-service/internal/device/model"
+	eventmodel "has-smartlock-service/internal/event/model"
 	homemodel "has-smartlock-service/internal/home/model"
 	"has-smartlock-service/internal/pkg/config"
 	"has-smartlock-service/internal/pkg/db"
@@ -104,6 +106,14 @@ type newDeviceResponse struct {
 	DeleteTime    int64  `json:"delete_time"`
 }
 
+type shareRecordResponse struct {
+	Username string `json:"username"`
+	UUID     string `json:"uuid"`
+	UID      string `json:"uid"`
+	Status   int    `json:"status"`
+	Role     int    `json:"role"`
+}
+
 type messagePayloadResponse struct {
 	HomeID   string `json:"home_id"`
 	HomeName string `json:"home_name"`
@@ -128,6 +138,47 @@ type messageListResponse struct {
 
 type unreadNumResponse struct {
 	Number int64 `json:"number"`
+}
+
+type eventPayloadResponse struct {
+	Result int `json:"result"`
+}
+
+type eventItemResponse struct {
+	ID         string               `json:"id"`
+	UUID       string               `json:"uuid"`
+	DeviceName string               `json:"device_name"`
+	Type       int                  `json:"type"`
+	IsRead     int                  `json:"is_read"`
+	Time       int64                `json:"time"`
+	DeviceTime int64                `json:"device_time"`
+	Thumbnail  string               `json:"thumbnail"`
+	Payload    eventPayloadResponse `json:"payload"`
+}
+
+type eventListResponse struct {
+	Has  bool                `json:"has"`
+	List []eventItemResponse `json:"list"`
+}
+
+type deviceModelResponse struct {
+	ModelCode   string `json:"model_code"`
+	Status      int    `json:"status"`
+	ModelName   string `json:"model_name"`
+	Category    string `json:"category"`
+	ShowName    string `json:"show_name"`
+	DefaultName string `json:"default_name"`
+	Thumbnail   string `json:"thumbnail"`
+}
+
+type deviceUpgradeVersionResponse struct {
+	Flag    string `json:"flag"`
+	Version string `json:"version"`
+}
+
+type deviceUpgradeResponse struct {
+	Has     bool                          `json:"has"`
+	Version *deviceUpgradeVersionResponse `json:"version"`
 }
 
 type requestOptions struct {
@@ -2318,6 +2369,568 @@ func TestHomeShareRemoveFailures(t *testing.T) {
 	}
 }
 
+func TestEventListUnreadReadDeleteFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "event-owner@example.com")
+	member := registerUserForTest(t, application, "event-member@example.com")
+
+	homeID := createHomeForTest(t, application, owner.AccessToken, "Event Home")
+	addHomeMemberForTest(t, application, homeID, member.UID, homemodel.RoleMember)
+
+	const uuid = "event-device-001"
+	insertOwnedDeviceForTest(t, application, owner.UID, uuid, "event-device-id-001", "Front Door")
+	addDeviceToHomeForTest(t, application, owner.AccessToken, homeID, uuid)
+
+	event1Time := time.Date(2026, 4, 10, 8, 0, 0, 0, time.Local).Unix()
+	event2Time := time.Date(2026, 4, 10, 9, 0, 0, 0, time.Local).Unix()
+	event3Time := time.Date(2026, 4, 10, 10, 0, 0, 0, time.Local).Unix()
+	event1ID := insertDeviceEventForTest(t, application, homeID, uuid, 1, event1Time, event1Time-5, "thumb://1", `{"result":1}`)
+	event2ID := insertDeviceEventForTest(t, application, homeID, uuid, 2, event2Time, event2Time-5, "thumb://2", `{"result":0}`)
+	event3ID := insertDeviceEventForTest(t, application, homeID, uuid, 3, event3Time, event3Time-5, "thumb://3", `{"result":1}`)
+
+	ownerListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?uuid="+uuid, nil, "Bearer "+owner.AccessToken)
+	if ownerListResp.Code != 1000 {
+		t.Fatalf("owner event/list code = %d, want 1000", ownerListResp.Code)
+	}
+
+	var ownerList eventListResponse
+	if err := json.Unmarshal(ownerListResp.Data, &ownerList); err != nil {
+		t.Fatalf("unmarshal owner event/list response: %v", err)
+	}
+	if ownerList.Has {
+		t.Fatalf("owner event/list has = true, want false")
+	}
+	if len(ownerList.List) != 3 {
+		t.Fatalf("owner event/list length = %d, want 3", len(ownerList.List))
+	}
+	if ownerList.List[0].ID != event3ID || ownerList.List[1].ID != event2ID || ownerList.List[2].ID != event1ID {
+		t.Fatalf("owner event/list order = %+v", ownerList.List)
+	}
+	if ownerList.List[0].DeviceName != "Front Door" {
+		t.Fatalf("owner event device_name = %q, want Front Door", ownerList.List[0].DeviceName)
+	}
+	if ownerList.List[0].Payload.Result != 1 {
+		t.Fatalf("owner event payload.result = %d, want 1", ownerList.List[0].Payload.Result)
+	}
+	if ownerList.List[1].IsRead != 0 {
+		t.Fatalf("owner event is_read before read = %d, want 0", ownerList.List[1].IsRead)
+	}
+
+	memberListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?home_id="+homeID, nil, "Bearer "+member.AccessToken)
+	if memberListResp.Code != 1000 {
+		t.Fatalf("member event/list by home code = %d, want 1000", memberListResp.Code)
+	}
+
+	var memberList eventListResponse
+	if err := json.Unmarshal(memberListResp.Data, &memberList); err != nil {
+		t.Fatalf("unmarshal member event/list response: %v", err)
+	}
+	if len(memberList.List) != 3 {
+		t.Fatalf("member event/list length = %d, want 3", len(memberList.List))
+	}
+
+	unreadResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/unreadNum?uuid="+uuid, nil, "Bearer "+owner.AccessToken)
+	if unreadResp.Code != 1000 {
+		t.Fatalf("owner event/unreadNum code = %d, want 1000", unreadResp.Code)
+	}
+
+	var unread unreadNumResponse
+	if err := json.Unmarshal(unreadResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal owner event/unreadNum response: %v", err)
+	}
+	if unread.Number != 3 {
+		t.Fatalf("owner event/unreadNum = %d, want 3", unread.Number)
+	}
+
+	readResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/event/read", map[string]any{
+		"msg_id": event3ID,
+		"uuid":   uuid,
+	}, "Bearer "+owner.AccessToken)
+	if readResp.Code != 1000 {
+		t.Fatalf("owner event/read code = %d, want 1000", readResp.Code)
+	}
+
+	unreadAfterReadResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/unreadNum?uuid="+uuid, nil, "Bearer "+owner.AccessToken)
+	if unreadAfterReadResp.Code != 1000 {
+		t.Fatalf("owner event/unreadNum after read code = %d, want 1000", unreadAfterReadResp.Code)
+	}
+	if err := json.Unmarshal(unreadAfterReadResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal owner event/unreadNum after read response: %v", err)
+	}
+	if unread.Number != 2 {
+		t.Fatalf("owner event/unreadNum after read = %d, want 2", unread.Number)
+	}
+
+	memberUnreadResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/unreadNum?uuid="+uuid, nil, "Bearer "+member.AccessToken)
+	if memberUnreadResp.Code != 1000 {
+		t.Fatalf("member event/unreadNum code = %d, want 1000", memberUnreadResp.Code)
+	}
+	if err := json.Unmarshal(memberUnreadResp.Data, &unread); err != nil {
+		t.Fatalf("unmarshal member event/unreadNum response: %v", err)
+	}
+	if unread.Number != 3 {
+		t.Fatalf("member event/unreadNum = %d, want 3", unread.Number)
+	}
+
+	deleteResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/event/delete?msg_id="+event2ID+"&uuid="+uuid, nil, "Bearer "+owner.AccessToken)
+	if deleteResp.Code != 1000 {
+		t.Fatalf("owner event/delete code = %d, want 1000", deleteResp.Code)
+	}
+
+	ownerListAfterResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?uuid="+uuid, nil, "Bearer "+owner.AccessToken)
+	if ownerListAfterResp.Code != 1000 {
+		t.Fatalf("owner event/list after delete code = %d, want 1000", ownerListAfterResp.Code)
+	}
+	if err := json.Unmarshal(ownerListAfterResp.Data, &ownerList); err != nil {
+		t.Fatalf("unmarshal owner event/list after delete response: %v", err)
+	}
+	if len(ownerList.List) != 2 {
+		t.Fatalf("owner event/list after delete length = %d, want 2", len(ownerList.List))
+	}
+	if ownerList.List[0].ID != event3ID || ownerList.List[1].ID != event1ID {
+		t.Fatalf("owner event/list after delete order = %+v", ownerList.List)
+	}
+	if ownerList.List[0].IsRead != 1 {
+		t.Fatalf("owner event/list after read is_read = %d, want 1", ownerList.List[0].IsRead)
+	}
+
+	memberListAfterResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?uuid="+uuid, nil, "Bearer "+member.AccessToken)
+	if memberListAfterResp.Code != 1000 {
+		t.Fatalf("member event/list after owner delete code = %d, want 1000", memberListAfterResp.Code)
+	}
+	if err := json.Unmarshal(memberListAfterResp.Data, &memberList); err != nil {
+		t.Fatalf("unmarshal member event/list after owner delete response: %v", err)
+	}
+	if len(memberList.List) != 3 {
+		t.Fatalf("member event/list after owner delete length = %d, want 3", len(memberList.List))
+	}
+
+	startTimeResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?uuid="+uuid+"&start_time="+strconv.FormatInt(event3Time, 10), nil, "Bearer "+member.AccessToken)
+	if startTimeResp.Code != 1000 {
+		t.Fatalf("member event/list start_time code = %d, want 1000", startTimeResp.Code)
+	}
+	if err := json.Unmarshal(startTimeResp.Data, &memberList); err != nil {
+		t.Fatalf("unmarshal member event/list start_time response: %v", err)
+	}
+	if len(memberList.List) != 2 {
+		t.Fatalf("member event/list start_time length = %d, want 2", len(memberList.List))
+	}
+	if memberList.List[0].ID != event2ID || memberList.List[1].ID != event1ID {
+		t.Fatalf("member event/list start_time order = %+v", memberList.List)
+	}
+}
+
+func TestEventFiltersAndPermissionFailures(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "event-filter-owner@example.com")
+	member := registerUserForTest(t, application, "event-filter-member@example.com")
+	outsider := registerUserForTest(t, application, "event-filter-outsider@example.com")
+
+	home1ID := createHomeForTest(t, application, owner.AccessToken, "Filter Home 1")
+	home2ID := createHomeForTest(t, application, owner.AccessToken, "Filter Home 2")
+	addHomeMemberForTest(t, application, home1ID, member.UID, homemodel.RoleMember)
+
+	const uuid1 = "event-filter-device-1"
+	const uuid2 = "event-filter-device-2"
+	insertOwnedDeviceForTest(t, application, owner.UID, uuid1, "event-filter-device-id-1", "Side Door")
+	insertOwnedDeviceForTest(t, application, owner.UID, uuid2, "event-filter-device-id-2", "Garage Door")
+	addDeviceToHomeForTest(t, application, owner.AccessToken, home1ID, uuid1)
+	addDeviceToHomeForTest(t, application, owner.AccessToken, home2ID, uuid2)
+
+	event1ID := insertDeviceEventForTest(t, application, home1ID, uuid1, 1, time.Date(2026, 4, 11, 9, 0, 0, 0, time.Local).Unix(), time.Date(2026, 4, 11, 8, 59, 30, 0, time.Local).Unix(), "", `{"result":1}`)
+	event2ID := insertDeviceEventForTest(t, application, home1ID, uuid1, 2, time.Date(2026, 4, 12, 9, 0, 0, 0, time.Local).Unix(), time.Date(2026, 4, 12, 8, 59, 30, 0, time.Local).Unix(), "", `{"result":0}`)
+	event3ID := insertDeviceEventForTest(t, application, home2ID, uuid2, 2, time.Date(2026, 4, 11, 10, 0, 0, 0, time.Local).Unix(), time.Date(2026, 4, 11, 9, 59, 30, 0, time.Local).Unix(), "", `{"result":1}`)
+
+	intersectionResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?home_id="+home2ID+"&uuid="+uuid1, nil, "Bearer "+owner.AccessToken)
+	if intersectionResp.Code != 1000 {
+		t.Fatalf("owner event/list intersection code = %d, want 1000", intersectionResp.Code)
+	}
+
+	var listData eventListResponse
+	if err := json.Unmarshal(intersectionResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal owner event/list intersection response: %v", err)
+	}
+	if len(listData.List) != 0 {
+		t.Fatalf("owner event/list intersection length = %d, want 0", len(listData.List))
+	}
+
+	dateTypeResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?uuid="+uuid2+"&date=2026-04-11&type=2", nil, "Bearer "+owner.AccessToken)
+	if dateTypeResp.Code != 1000 {
+		t.Fatalf("owner event/list date+type code = %d, want 1000", dateTypeResp.Code)
+	}
+	if err := json.Unmarshal(dateTypeResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal owner event/list date+type response: %v", err)
+	}
+	if len(listData.List) != 1 || listData.List[0].ID != event3ID {
+		t.Fatalf("owner event/list date+type ids = %+v, want [%s]", listData.List, event3ID)
+	}
+
+	memberFilterResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?home_id="+home1ID+"&type=2", nil, "Bearer "+member.AccessToken)
+	if memberFilterResp.Code != 1000 {
+		t.Fatalf("member event/list home+type code = %d, want 1000", memberFilterResp.Code)
+	}
+	if err := json.Unmarshal(memberFilterResp.Data, &listData); err != nil {
+		t.Fatalf("unmarshal member event/list home+type response: %v", err)
+	}
+	if len(listData.List) != 1 || listData.List[0].ID != event2ID {
+		t.Fatalf("member event/list home+type ids = %+v, want [%s]", listData.List, event2ID)
+	}
+
+	outsiderListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/list?uuid="+uuid1, nil, "Bearer "+outsider.AccessToken)
+	if outsiderListResp.Code != 4002 {
+		t.Fatalf("outsider event/list code = %d, want 4002", outsiderListResp.Code)
+	}
+
+	missingUnreadResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/unreadNum", nil, "Bearer "+member.AccessToken)
+	if missingUnreadResp.Code != 2000 {
+		t.Fatalf("missing event/unreadNum uuid code = %d, want 2000", missingUnreadResp.Code)
+	}
+
+	outsiderReadResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/event/read", map[string]any{
+		"msg_id": event1ID,
+		"uuid":   uuid1,
+	}, "Bearer "+outsider.AccessToken)
+	if outsiderReadResp.Code != 7002 {
+		t.Fatalf("outsider event/read code = %d, want 7002", outsiderReadResp.Code)
+	}
+
+	wrongUUIDReadResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/event/read", map[string]any{
+		"msg_id": event1ID,
+		"uuid":   uuid2,
+	}, "Bearer "+owner.AccessToken)
+	if wrongUUIDReadResp.Code != 7001 {
+		t.Fatalf("wrong uuid event/read code = %d, want 7001", wrongUUIDReadResp.Code)
+	}
+
+	missingDeleteResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/event/delete?uuid="+uuid1, nil, "Bearer "+owner.AccessToken)
+	if missingDeleteResp.Code != 2000 {
+		t.Fatalf("missing event/delete msg_id code = %d, want 2000", missingDeleteResp.Code)
+	}
+
+	notFoundDeleteResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/event/delete?msg_id=999999&uuid="+uuid1, nil, "Bearer "+owner.AccessToken)
+	if notFoundDeleteResp.Code != 7001 {
+		t.Fatalf("missing event/delete code = %d, want 7001", notFoundDeleteResp.Code)
+	}
+}
+
+func TestEventExistDayFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "event-day-owner@example.com")
+	member := registerUserForTest(t, application, "event-day-member@example.com")
+	outsider := registerUserForTest(t, application, "event-day-outsider@example.com")
+
+	home1ID := createHomeForTest(t, application, owner.AccessToken, "Event Day Home 1")
+	home2ID := createHomeForTest(t, application, owner.AccessToken, "Event Day Home 2")
+	addHomeMemberForTest(t, application, home1ID, member.UID, homemodel.RoleMember)
+
+	const uuid1 = "event-day-device-1"
+	const uuid2 = "event-day-device-2"
+	insertOwnedDeviceForTest(t, application, owner.UID, uuid1, "event-day-device-id-1", "Front Door")
+	insertOwnedDeviceForTest(t, application, owner.UID, uuid2, "event-day-device-id-2", "Back Door")
+	addDeviceToHomeForTest(t, application, owner.AccessToken, home1ID, uuid1)
+	addDeviceToHomeForTest(t, application, owner.AccessToken, home2ID, uuid2)
+
+	insertDeviceEventForTest(t, application, home1ID, uuid1, 1, time.Date(2026, 4, 11, 9, 0, 0, 0, time.Local).Unix(), time.Date(2026, 4, 11, 8, 59, 0, 0, time.Local).Unix(), "", `{"result":1}`)
+	insertDeviceEventForTest(t, application, home1ID, uuid1, 2, time.Date(2026, 4, 11, 10, 0, 0, 0, time.Local).Unix(), time.Date(2026, 4, 11, 9, 59, 0, 0, time.Local).Unix(), "", `{"result":0}`)
+	insertDeviceEventForTest(t, application, home1ID, uuid1, 3, time.Date(2026, 4, 12, 11, 0, 0, 0, time.Local).Unix(), time.Date(2026, 4, 12, 10, 59, 0, 0, time.Local).Unix(), "", `{"result":1}`)
+	insertDeviceEventForTest(t, application, home2ID, uuid2, 2, time.Date(2026, 4, 13, 12, 0, 0, 0, time.Local).Unix(), time.Date(2026, 4, 13, 11, 59, 0, 0, time.Local).Unix(), "", `{"result":1}`)
+
+	ownerResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/existDay?month=2026-04&uuid="+uuid1, nil, "Bearer "+owner.AccessToken)
+	if ownerResp.Code != 1000 {
+		t.Fatalf("owner event/existDay code = %d, want 1000", ownerResp.Code)
+	}
+
+	var ownerDays map[string]int
+	if err := json.Unmarshal(ownerResp.Data, &ownerDays); err != nil {
+		t.Fatalf("unmarshal owner event/existDay response: %v", err)
+	}
+	if len(ownerDays) != 2 || ownerDays["2026-04-11"] != 2 || ownerDays["2026-04-12"] != 1 {
+		t.Fatalf("owner event/existDay data = %+v, want 2026-04-11=2 and 2026-04-12=1", ownerDays)
+	}
+
+	memberResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/existDay?month=2026-04&home_id="+home1ID, nil, "Bearer "+member.AccessToken)
+	if memberResp.Code != 1000 {
+		t.Fatalf("member event/existDay code = %d, want 1000", memberResp.Code)
+	}
+
+	var memberDays map[string]int
+	if err := json.Unmarshal(memberResp.Data, &memberDays); err != nil {
+		t.Fatalf("unmarshal member event/existDay response: %v", err)
+	}
+	if len(memberDays) != 2 || memberDays["2026-04-11"] != 2 || memberDays["2026-04-12"] != 1 {
+		t.Fatalf("member event/existDay data = %+v, want 2026-04-11=2 and 2026-04-12=1", memberDays)
+	}
+
+	intersectionResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/existDay?month=2026-04&home_id="+home2ID+"&uuid="+uuid1, nil, "Bearer "+owner.AccessToken)
+	if intersectionResp.Code != 1000 {
+		t.Fatalf("owner event/existDay intersection code = %d, want 1000", intersectionResp.Code)
+	}
+	ownerDays = nil
+	if err := json.Unmarshal(intersectionResp.Data, &ownerDays); err != nil {
+		t.Fatalf("unmarshal owner event/existDay intersection response: %v", err)
+	}
+	if len(ownerDays) != 0 {
+		t.Fatalf("owner event/existDay intersection data = %+v, want empty", ownerDays)
+	}
+
+	invalidMonthResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/existDay?month=2026-13&uuid="+uuid1, nil, "Bearer "+owner.AccessToken)
+	if invalidMonthResp.Code != 2000 {
+		t.Fatalf("invalid month event/existDay code = %d, want 2000", invalidMonthResp.Code)
+	}
+
+	outsiderResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/event/existDay?month=2026-04&uuid="+uuid1, nil, "Bearer "+outsider.AccessToken)
+	if outsiderResp.Code != 4002 {
+		t.Fatalf("outsider event/existDay code = %d, want 4002", outsiderResp.Code)
+	}
+}
+
+func TestDeviceModelsAndUpgradeVersionFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "device-model-owner@example.com")
+	sharedUser := registerUserForTest(t, application, "device-model-shared@example.com")
+	outsider := registerUserForTest(t, application, "device-model-outsider@example.com")
+
+	insertOwnedDeviceForTest(t, application, owner.UID, "device-upgrade-uuid", "device-upgrade-id", "Front Door")
+	if err := application.DB().Model(&devicemodel.Device{}).
+		Where("uuid = ?", "device-upgrade-uuid").
+		Updates(map[string]any{
+			"model_code":      "SL100",
+			"current_version": "SL100_BP_1.01.10",
+		}).Error; err != nil {
+		t.Fatalf("prepare device upgrade fixture: %v", err)
+	}
+
+	modelsResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/models", nil, "Bearer "+owner.AccessToken)
+	if modelsResp.Code != 1000 {
+		t.Fatalf("device/models code = %d, want 1000", modelsResp.Code)
+	}
+
+	var models []deviceModelResponse
+	if err := json.Unmarshal(modelsResp.Data, &models); err != nil {
+		t.Fatalf("unmarshal device/models response: %v", err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("device/models length = %d, want 2", len(models))
+	}
+	if models[0].ModelCode != "SL100" || models[0].ShowName == "" {
+		t.Fatalf("device/models first item = %+v, want model_code=SL100 and non-empty show_name", models[0])
+	}
+	if models[1].ModelCode != "SL200" || models[1].Status != 0 {
+		t.Fatalf("device/models second item = %+v, want model_code=SL200 status=0", models[1])
+	}
+
+	upgradeResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/upgradedVersion?uuid=device-upgrade-uuid&flag=firmware", nil, "Bearer "+owner.AccessToken)
+	if upgradeResp.Code != 1000 {
+		t.Fatalf("device/upgradedVersion firmware code = %d, want 1000", upgradeResp.Code)
+	}
+
+	var upgrade deviceUpgradeResponse
+	if err := json.Unmarshal(upgradeResp.Data, &upgrade); err != nil {
+		t.Fatalf("unmarshal device/upgradedVersion firmware response: %v", err)
+	}
+	if !upgrade.Has || upgrade.Version == nil || upgrade.Version.Flag != "firmware" || upgrade.Version.Version != "SL100_BP_1.02.00" {
+		t.Fatalf("device/upgradedVersion firmware data = %+v, want has=true flag=firmware version=SL100_BP_1.02.00", upgrade)
+	}
+
+	noUpgradeResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/upgradedVersion?uuid=device-upgrade-uuid&flag=security", nil, "Bearer "+owner.AccessToken)
+	if noUpgradeResp.Code != 1000 {
+		t.Fatalf("device/upgradedVersion missing flag code = %d, want 1000", noUpgradeResp.Code)
+	}
+	if err := json.Unmarshal(noUpgradeResp.Data, &upgrade); err != nil {
+		t.Fatalf("unmarshal device/upgradedVersion missing flag response: %v", err)
+	}
+	if upgrade.Has || upgrade.Version != nil {
+		t.Fatalf("device/upgradedVersion missing flag data = %+v, want has=false version=nil", upgrade)
+	}
+
+	shareResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/share", map[string]any{
+		"uuid":     "device-upgrade-uuid",
+		"username": "device-model-shared@example.com",
+	}, "Bearer "+owner.AccessToken)
+	if shareResp.Code != 1000 {
+		t.Fatalf("device/share for upgrade visibility code = %d, want 1000", shareResp.Code)
+	}
+
+	messageListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/message/list", nil, "Bearer "+sharedUser.AccessToken)
+	if messageListResp.Code != 1000 {
+		t.Fatalf("shared user message/list code = %d, want 1000", messageListResp.Code)
+	}
+	var messages messageListResponse
+	if err := json.Unmarshal(messageListResp.Data, &messages); err != nil {
+		t.Fatalf("unmarshal shared user message/list response: %v", err)
+	}
+	if len(messages.List) == 0 {
+		t.Fatalf("expected at least one share invite message")
+	}
+
+	feedbackResp := performJSONRequest(t, application.router, http.MethodPost, "/v1/device/shareFeedback", map[string]any{
+		"msg_id": messages.List[0].ID,
+		"status": 1,
+	}, "Bearer "+sharedUser.AccessToken)
+	if feedbackResp.Code != 1000 {
+		t.Fatalf("device/shareFeedback for upgrade visibility code = %d, want 1000", feedbackResp.Code)
+	}
+
+	sharedUpgradeResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/upgradedVersion?uuid=device-upgrade-uuid&flag=firmware", nil, "Bearer "+sharedUser.AccessToken)
+	if sharedUpgradeResp.Code != 1000 {
+		t.Fatalf("shared user device/upgradedVersion code = %d, want 1000", sharedUpgradeResp.Code)
+	}
+
+	missingFlagResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/upgradedVersion?uuid=device-upgrade-uuid", nil, "Bearer "+owner.AccessToken)
+	if missingFlagResp.Code != 2000 {
+		t.Fatalf("missing flag device/upgradedVersion code = %d, want 2000", missingFlagResp.Code)
+	}
+
+	missingDeviceResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/upgradedVersion?uuid=device-upgrade-missing&flag=firmware", nil, "Bearer "+owner.AccessToken)
+	if missingDeviceResp.Code != 4001 {
+		t.Fatalf("missing device device/upgradedVersion code = %d, want 4001", missingDeviceResp.Code)
+	}
+
+	outsiderUpgradeResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/upgradedVersion?uuid=device-upgrade-uuid&flag=firmware", nil, "Bearer "+outsider.AccessToken)
+	if outsiderUpgradeResp.Code != 4002 {
+		t.Fatalf("outsider device/upgradedVersion code = %d, want 4002", outsiderUpgradeResp.Code)
+	}
+}
+
+func TestDeviceShareRecordsFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "share-records-owner@example.com")
+	pendingUser := registerUserForTest(t, application, "share-records-pending@example.com")
+	acceptedUser := registerUserForTest(t, application, "share-records-accepted@example.com")
+	rejectedUser := registerUserForTest(t, application, "share-records-rejected@example.com")
+	revokedUser := registerUserForTest(t, application, "share-records-revoked@example.com")
+	other := registerUserForTest(t, application, "share-records-other@example.com")
+
+	insertOwnedDeviceForTest(t, application, owner.UID, "device-share-records-uuid", "device-share-records-id", "Front Door")
+
+	createDeviceShareInviteForTest(t, application, "device-share-records-uuid", owner.UID, pendingUser.UID, 0)
+	createDeviceShareInviteForTest(t, application, "device-share-records-uuid", owner.UID, acceptedUser.UID, 1)
+	createDeviceShareMemberForTest(t, application, "device-share-records-uuid", acceptedUser.UID, owner.UID, 2)
+	createDeviceShareInviteForTest(t, application, "device-share-records-uuid", owner.UID, rejectedUser.UID, 2)
+	createDeviceShareInviteForTest(t, application, "device-share-records-uuid", owner.UID, revokedUser.UID, 1)
+
+	recordsResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/shareRecords?uuid=device-share-records-uuid", nil, "Bearer "+owner.AccessToken)
+	if recordsResp.Code != 1000 {
+		t.Fatalf("shareRecords code = %d, want 1000", recordsResp.Code)
+	}
+
+	var records []shareRecordResponse
+	if err := json.Unmarshal(recordsResp.Data, &records); err != nil {
+		t.Fatalf("unmarshal shareRecords response: %v", err)
+	}
+	if len(records) != 4 {
+		t.Fatalf("shareRecords length = %d, want 4", len(records))
+	}
+
+	byUID := make(map[string]shareRecordResponse, len(records))
+	for _, record := range records {
+		byUID[record.UID] = record
+		if record.UUID != "device-share-records-uuid" {
+			t.Fatalf("shareRecords item uuid = %q, want device-share-records-uuid", record.UUID)
+		}
+		if record.Role != 2 {
+			t.Fatalf("shareRecords item role = %d, want 2", record.Role)
+		}
+	}
+
+	if byUID[pendingUser.UID].Status != 0 {
+		t.Fatalf("pending share status = %d, want 0", byUID[pendingUser.UID].Status)
+	}
+	if byUID[acceptedUser.UID].Status != 1 {
+		t.Fatalf("accepted share status = %d, want 1", byUID[acceptedUser.UID].Status)
+	}
+	if byUID[rejectedUser.UID].Status != 2 {
+		t.Fatalf("rejected share status = %d, want 2", byUID[rejectedUser.UID].Status)
+	}
+	if byUID[revokedUser.UID].Status != 3 {
+		t.Fatalf("revoked share status = %d, want 3", byUID[revokedUser.UID].Status)
+	}
+	if _, ok := byUID[other.UID]; ok {
+		t.Fatalf("unexpected share record for unrelated user %q", other.UID)
+	}
+
+	missingUUIDResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/shareRecords", nil, "Bearer "+owner.AccessToken)
+	if missingUUIDResp.Code != 2000 {
+		t.Fatalf("missing uuid shareRecords code = %d, want 2000", missingUUIDResp.Code)
+	}
+
+	missingDeviceResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/shareRecords?uuid=device-share-records-missing", nil, "Bearer "+owner.AccessToken)
+	if missingDeviceResp.Code != 4001 {
+		t.Fatalf("missing device shareRecords code = %d, want 4001", missingDeviceResp.Code)
+	}
+
+	forbiddenResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/shareRecords?uuid=device-share-records-uuid", nil, "Bearer "+acceptedUser.AccessToken)
+	if forbiddenResp.Code != 4002 {
+		t.Fatalf("non-owner shareRecords code = %d, want 4002", forbiddenResp.Code)
+	}
+}
+
+func TestDeviceShareDeleteFlow(t *testing.T) {
+	application := newTestApp(t)
+	owner := registerUserForTest(t, application, "share-delete-owner@example.com")
+	sharedUser := registerUserForTest(t, application, "share-delete-shared@example.com")
+	other := registerUserForTest(t, application, "share-delete-other@example.com")
+
+	insertOwnedDeviceForTest(t, application, owner.UID, "device-share-delete-uuid", "device-share-delete-id", "Garage Lock")
+	createDeviceShareInviteForTest(t, application, "device-share-delete-uuid", owner.UID, sharedUser.UID, 1)
+	createDeviceShareMemberForTest(t, application, "device-share-delete-uuid", sharedUser.UID, owner.UID, 2)
+	createDeviceShareInviteForTest(t, application, "device-share-delete-uuid", owner.UID, sharedUser.UID, 0)
+
+	deleteResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/shareDelete?uid="+sharedUser.UID+"&uuid=device-share-delete-uuid", nil, "Bearer "+owner.AccessToken)
+	if deleteResp.Code != 1000 {
+		t.Fatalf("shareDelete code = %d, want 1000", deleteResp.Code)
+	}
+
+	assertNoActiveDeviceShareMember(t, application, "device-share-delete-uuid", sharedUser.UID)
+	assertNoActivePendingDeviceShareInvite(t, application, "device-share-delete-uuid", sharedUser.UID)
+
+	recordsResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/shareRecords?uuid=device-share-delete-uuid", nil, "Bearer "+owner.AccessToken)
+	if recordsResp.Code != 1000 {
+		t.Fatalf("shareRecords after shareDelete code = %d, want 1000", recordsResp.Code)
+	}
+
+	var records []shareRecordResponse
+	if err := json.Unmarshal(recordsResp.Data, &records); err != nil {
+		t.Fatalf("unmarshal shareRecords after shareDelete response: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("shareRecords after shareDelete length = %d, want 1", len(records))
+	}
+	if records[0].UID != sharedUser.UID || records[0].Status != 3 || records[0].Role != 2 {
+		t.Fatalf("shareRecords after shareDelete item = %+v, want uid=%q status=3 role=2", records[0], sharedUser.UID)
+	}
+
+	repeatDeleteResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/shareDelete?uid="+sharedUser.UID+"&uuid=device-share-delete-uuid", nil, "Bearer "+owner.AccessToken)
+	if repeatDeleteResp.Code != 1000 {
+		t.Fatalf("repeat shareDelete code = %d, want 1000", repeatDeleteResp.Code)
+	}
+
+	missingParamResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/shareDelete?uuid=device-share-delete-uuid", nil, "Bearer "+owner.AccessToken)
+	if missingParamResp.Code != 2000 {
+		t.Fatalf("missing uid shareDelete code = %d, want 2000", missingParamResp.Code)
+	}
+
+	missingUserResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/shareDelete?uid=u_missing&uuid=device-share-delete-uuid", nil, "Bearer "+owner.AccessToken)
+	if missingUserResp.Code != 2003 {
+		t.Fatalf("missing target user shareDelete code = %d, want 2003", missingUserResp.Code)
+	}
+
+	selfResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/shareDelete?uid="+owner.UID+"&uuid=device-share-delete-uuid", nil, "Bearer "+owner.AccessToken)
+	if selfResp.Code != 4003 {
+		t.Fatalf("self shareDelete code = %d, want 4003", selfResp.Code)
+	}
+
+	forbiddenResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/shareDelete?uid="+sharedUser.UID+"&uuid=device-share-delete-uuid", nil, "Bearer "+other.AccessToken)
+	if forbiddenResp.Code != 4002 {
+		t.Fatalf("non-owner shareDelete code = %d, want 4002", forbiddenResp.Code)
+	}
+
+	missingDeviceResp := performJSONRequest(t, application.router, http.MethodDelete, "/v1/device/shareDelete?uid="+sharedUser.UID+"&uuid=device-share-delete-missing", nil, "Bearer "+owner.AccessToken)
+	if missingDeviceResp.Code != 4001 {
+		t.Fatalf("missing device shareDelete code = %d, want 4001", missingDeviceResp.Code)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 
@@ -2333,6 +2946,8 @@ func newTestApp(t *testing.T) *App {
 		VerificationTTL:       300,
 		AppSecretKey:          "test-app-secret",
 		DeviceModelSecretsRaw: `{"SL100":"device-model-secret"}`,
+		DeviceModelsRaw:       `[{"model_code":"SL100","status":1,"model_name":"Smart Lock 100","category":"lock","show_name":"SL100 Smart Lock","default_name":"Door Lock","thumbnail":"https://example.com/sl100.png"},{"model_code":"SL200","status":0,"model_name":"Smart Lock 200","category":"lock","show_name":"SL200 Smart Lock","default_name":"Back Door Lock","thumbnail":"https://example.com/sl200.png"}]`,
+		DeviceUpgradesRaw:     `[{"model_code":"SL100","flag":"firmware","version":"SL100_BP_1.02.00"},{"model_code":"SL100","flag":"mcu","version":"SL100_MCU_2.00.01"}]`,
 		SignTimestampSkew:     300,
 		OSSEndpoint:           "oss-cn-shenzhen.aliyuncs.com",
 		OSSBucketName:         "has-smartlock",
@@ -2379,6 +2994,8 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 		VerificationTTL:       -1,
 		AppSecretKey:          "test-app-secret",
 		DeviceModelSecretsRaw: `{"SL100":"device-model-secret"}`,
+		DeviceModelsRaw:       `[{"model_code":"SL100","status":1,"model_name":"Smart Lock 100","category":"lock","show_name":"SL100 Smart Lock","default_name":"Door Lock","thumbnail":"https://example.com/sl100.png"}]`,
+		DeviceUpgradesRaw:     `[{"model_code":"SL100","flag":"firmware","version":"SL100_BP_1.02.00"}]`,
 		SignTimestampSkew:     300,
 		OSSEndpoint:           "oss-cn-shenzhen.aliyuncs.com",
 		OSSBucketName:         "has-smartlock",
@@ -2413,10 +3030,120 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 func cleanupTables(t *testing.T, database *gorm.DB) {
 	t.Helper()
 
-	for _, table := range []string{"home_share_remove_messages", "home_share_feedback_messages", "home_share_invites", "home_devices", "devices", "home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
+	for _, table := range []string{"device_event_user_states", "device_events", "device_share_feedback_messages", "device_share_members", "device_share_invites", "home_share_remove_messages", "home_share_feedback_messages", "home_share_invites", "home_devices", "devices", "home_members", "homes", "user_clients", "refresh_tokens", "verification_codes", "users"} {
 		if err := database.Exec("DELETE FROM " + table).Error; err != nil {
 			t.Fatalf("cleanup table %s: %v", table, err)
 		}
+	}
+}
+
+func createDeviceShareInviteForTest(t *testing.T, application *App, uuid, fromUID, toUID string, status int) {
+	t.Helper()
+
+	var device devicemodel.Device
+	if err := application.DB().Where("uuid = ?", uuid).Take(&device).Error; err != nil {
+		t.Fatalf("find device for device share invite fixture: %v", err)
+	}
+
+	var fromUser usermodel.User
+	if err := application.DB().Where("uid = ?", fromUID).Take(&fromUser).Error; err != nil {
+		t.Fatalf("find source user for device share invite fixture: %v", err)
+	}
+
+	var toUser usermodel.User
+	if err := application.DB().Where("uid = ?", toUID).Take(&toUser).Error; err != nil {
+		t.Fatalf("find target user for device share invite fixture: %v", err)
+	}
+
+	invite := devicemodel.DeviceShareInvite{
+		MsgID:      "msg_" + strconv.FormatInt(time.Now().UnixNano(), 10),
+		DeviceID:   device.ID,
+		FromUserID: fromUser.ID,
+		ToUserID:   toUser.ID,
+		Status:     status,
+		IsRead:     0,
+	}
+	if err := application.DB().Create(&invite).Error; err != nil {
+		t.Fatalf("create device share invite fixture: %v", err)
+	}
+}
+
+func createDeviceShareMemberForTest(t *testing.T, application *App, uuid, uid, grantedByUID string, role int) {
+	t.Helper()
+
+	var device devicemodel.Device
+	if err := application.DB().Where("uuid = ?", uuid).Take(&device).Error; err != nil {
+		t.Fatalf("find device for device share member fixture: %v", err)
+	}
+
+	var user usermodel.User
+	if err := application.DB().Where("uid = ?", uid).Take(&user).Error; err != nil {
+		t.Fatalf("find user for device share member fixture: %v", err)
+	}
+
+	var grantedBy usermodel.User
+	if err := application.DB().Where("uid = ?", grantedByUID).Take(&grantedBy).Error; err != nil {
+		t.Fatalf("find granting user for device share member fixture: %v", err)
+	}
+
+	member := devicemodel.DeviceShareMember{
+		DeviceID:        device.ID,
+		UserID:          user.ID,
+		Role:            role,
+		GrantedByUserID: grantedBy.ID,
+	}
+	if err := application.DB().Create(&member).Error; err != nil {
+		t.Fatalf("create device share member fixture: %v", err)
+	}
+}
+
+func assertNoActiveDeviceShareMember(t *testing.T, application *App, uuid, uid string) {
+	t.Helper()
+
+	var device devicemodel.Device
+	if err := application.DB().Where("uuid = ?", uuid).Take(&device).Error; err != nil {
+		t.Fatalf("find device for no active device share member assertion: %v", err)
+	}
+
+	var user usermodel.User
+	if err := application.DB().Where("uid = ?", uid).Take(&user).Error; err != nil {
+		t.Fatalf("find user for no active device share member assertion: %v", err)
+	}
+
+	var member devicemodel.DeviceShareMember
+	err := application.DB().
+		Where("device_id = ? AND user_id = ? AND deleted_at IS NULL", device.ID, user.ID).
+		Take(&member).Error
+	if err == nil {
+		t.Fatalf("unexpected active device share member found: %+v", member)
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("find device share member absence: %v", err)
+	}
+}
+
+func assertNoActivePendingDeviceShareInvite(t *testing.T, application *App, uuid, toUID string) {
+	t.Helper()
+
+	var device devicemodel.Device
+	if err := application.DB().Where("uuid = ?", uuid).Take(&device).Error; err != nil {
+		t.Fatalf("find device for no active pending invite assertion: %v", err)
+	}
+
+	var user usermodel.User
+	if err := application.DB().Where("uid = ?", toUID).Take(&user).Error; err != nil {
+		t.Fatalf("find user for no active pending invite assertion: %v", err)
+	}
+
+	var invite devicemodel.DeviceShareInvite
+	err := application.DB().
+		Where("device_id = ? AND to_user_id = ? AND status = 0 AND deleted_at IS NULL", device.ID, user.ID).
+		Take(&invite).Error
+	if err == nil {
+		t.Fatalf("unexpected active pending device share invite found: %+v", invite)
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("find device share invite absence: %v", err)
 	}
 }
 
@@ -2690,14 +3417,16 @@ func insertOwnedDeviceForTest(t *testing.T, application *App, uid, uuid, deviceI
 	t.Helper()
 
 	device := devicemodel.Device{
-		UUID:          uuid,
-		DeviceID:      deviceID,
-		UID:           uid,
-		BindType:      1,
-		Secret:        "secret-" + uuid,
-		Name:          name,
-		FirstBindTime: 1770000000,
-		BindTime:      1770000001,
+		UUID:           uuid,
+		DeviceID:       deviceID,
+		UID:            uid,
+		BindType:       1,
+		Secret:         "secret-" + uuid,
+		ModelCode:      "SL100",
+		CurrentVersion: "SL100_BP_1.01.10",
+		Name:           name,
+		FirstBindTime:  1770000000,
+		BindTime:       1770000001,
 	}
 	if err := application.DB().Create(&device).Error; err != nil {
 		t.Fatalf("create device fixture: %v", err)
@@ -2760,6 +3489,39 @@ func attachDeviceToHomeRawForTest(t *testing.T, application *App, homeBusinessID
 	if err := application.DB().Create(&link).Error; err != nil {
 		t.Fatalf("create raw home_device fixture: %v", err)
 	}
+}
+
+func insertDeviceEventForTest(t *testing.T, application *App, homeBusinessID, uuid string, eventType int, eventTime, deviceTime int64, thumbnail, payload string) string {
+	t.Helper()
+
+	var device devicemodel.Device
+	if err := application.DB().Where("uuid = ?", uuid).Take(&device).Error; err != nil {
+		t.Fatalf("find device for event fixture: %v", err)
+	}
+
+	var homeID *uint
+	if homeBusinessID != "" {
+		var home homemodel.Home
+		if err := application.DB().Where("home_id = ?", homeBusinessID).Take(&home).Error; err != nil {
+			t.Fatalf("find home for event fixture: %v", err)
+		}
+		homeID = &home.ID
+	}
+
+	event := eventmodel.DeviceEvent{
+		DeviceID:   device.ID,
+		HomeID:     homeID,
+		EventType:  eventType,
+		EventTime:  eventTime,
+		DeviceTime: deviceTime,
+		Thumbnail:  thumbnail,
+		Payload:    payload,
+	}
+	if err := application.DB().Create(&event).Error; err != nil {
+		t.Fatalf("create device event fixture: %v", err)
+	}
+
+	return strconv.FormatUint(uint64(event.ID), 10)
 }
 
 func assertHomeShareInviteExists(t *testing.T, application *App, homeBusinessID, fromUID, toUID string) {

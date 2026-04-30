@@ -156,3 +156,83 @@
   - `GET /v1/device/models`
   - `GET /v1/device/upgradedVersion`
   或其他设备域真实能力扩展。
+
+## 当前记忆（2026-04-09）
+
+- 今天已继续完成设备与家庭模块主链路：
+  - `POST /v1/device/homeAddDevice`
+  - `POST /v1/device/homeChange`
+- 当前设备家庭链路已经闭环：
+  - `POST /v1/device/bind` 创建设备
+  - `POST /v1/device/homeAddDevice` 将设备挂入家庭
+  - `POST /v1/device/homeChange` 将设备迁移到其他家庭
+  - `GET /v1/device/homeDevices` / `GET /v1/device/list` / `GET /v1/device/newList` 可查询真实数据
+  - `POST /v1/device/upName` 可修改真实设备名称
+- `homeAddDevice` 当前规则已固定：
+  - 只有家庭 owner 可添加
+  - 设备必须属于当前登录用户本人
+  - 同家庭重复添加按幂等成功处理
+  - 已挂其他家庭时返回业务失败
+- `homeChange` 当前规则已固定：
+  - 设备必须属于当前登录用户本人
+  - 当前用户必须能看到设备当前所在家庭
+  - 当前用户必须是目标家庭 owner
+  - 目标家庭等于当前家庭时按幂等成功处理
+  - 真正迁移时事务内执行“旧关系逻辑删除 + 新关系创建”
+- 今天已完成家庭分享链路第一批：
+  - `POST /v1/device/homeShare`
+  - `POST /v1/device/homeShareFeedback`
+  - `POST /v1/device/homeShareRemove`
+- 当前家庭分享规则已固定：
+  - `homeShare` 仅 owner 可邀请；不允许邀请自己；已在家庭中或已有待处理邀请时返回 `3003`
+  - `homeShareFeedback` 只允许消息接收方本人反馈；`accept=1` 同意并加入家庭；`accept=2` 拒绝
+  - `homeShareRemove` 只允许 owner 移除成员；不允许移除自己；移除成功后逻辑删除 `home_members`
+- 今天已完成消息模块第一批：
+  - `GET /v1/message/list`
+  - `GET /v1/message/unreadNum`
+  - `POST /v1/message/read`
+- 当前 `message/list` 语义已固定为“当前登录用户自己的消息盒”，不是家庭公共消息流。
+- 当前消息类型实现到：
+  - `type=1` 家庭分享邀请消息：发给被邀请人
+  - `type=2` 家庭分享反馈消息：发给邀请发起人
+  - `type=3` 被移除家庭通知消息：发给被移除成员
+- 当前消息字段语义已固定：
+  - 外层 `uid` 表示消息归属用户
+  - `payload.uid` / `payload.username` 表示消息中的另一方相关用户
+- 当前消息存储采用“按类型分源表聚合”的实现方式，而不是单一 `messages` 总表：
+  - `home_share_invites`
+  - `home_share_feedback_messages`
+  - `home_share_remove_messages`
+- 今天已新增并启用 migrations：
+  - `004_add_is_read_to_home_share_invites.sql`
+  - `005_create_home_share_feedback_messages.sql`
+  - `006_create_home_share_remove_messages.sql`
+- 当前消息模块联调与测试经验已明确：
+  - 被邀请人会在 `/v1/message/list` 中看到 `type=1`
+  - 邀请发起人会在 `/v1/message/list` 中看到 `type=2`
+  - 被移除成员会在 `/v1/message/list` 中看到 `type=3`
+  - 普通无关家庭成员不会看到与自己无关的邀请、反馈或移除消息
+- 当前相关回归测试已通过，`go test ./...` 为通过状态。
+- 最近新增提交包括：
+  - `1ffde72 feat: add home device attachment flow`
+  - `5299007 feat: add home share messaging flows`
+
+## 当前待推进（2026-04-09）
+
+- 当前家庭分享与消息模块还未完成的主要接口：
+  - `DELETE /v1/message/delete`
+- 当前消息模块只覆盖了家庭分享相关消息，尚未开始实现：
+  - `type=4` 设备分享消息
+  - `type=5` 设备分享结果消息
+- 当前设备分享主链路尚未开始实现，仍缺：
+  - `POST /v1/device/share`
+  - `GET /v1/device/shareRecords`
+  - `POST /v1/device/shareDelete`
+- 当前事件模块、设备型号与升级相关接口也仍未开始实现，例如：
+  - `GET /v1/device/models`
+  - `GET /v1/device/upgradedVersion`
+  - `/v1/event/*`
+- 若下一步继续推进，当前最自然顺序建议为：
+  1. 先补 `DELETE /v1/message/delete`，补齐现有消息模块第一批闭环
+  2. 再决定进入设备分享链路，先做 `share/shareRecords`，最后再做 `shareDelete`
+  3. 最后再进入设备型号、升级、事件模块

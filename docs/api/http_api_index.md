@@ -435,6 +435,8 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/device/models`
 - **Auth**: ✅
 - **参数方式**: 无参数
+- **行为说明**:
+  - 第一版返回服务端当前已配置的设备型号清单
 - **返回值** (`data`): `Array<DeviceModel>`
   | 字段 | 类型 | 说明 |
   |------|------|------|
@@ -467,17 +469,22 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/device/upgradedVersion`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 第一版为只读查询接口
+  - 仅当前可见设备的用户可查询；设备不存在返回 `4001`，无权限返回 `4002`
+  - 当前按设备已记录的 `model_code` 与 `current_version`，对比服务端已配置的升级版本清单
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
   | `uuid` | `string` | ✅ | 设备 UUID |
   | `flag` | `string` | ✅ | 升级模块标识 |
-- **返回值** (`data`): `Array<DeviceUpgrade>`
+- **返回值** (`data`): `DeviceUpgrade`
   | 字段 | 类型 | 说明 |
   |------|------|------|
   | `has` | `bool` | 是否有可更新版本 |
-  | `version` | `object` | 版本详情 |
+  | `version` | `object?` | 版本详情；`has=false` 时可为 `null` |
   | `version.flag` | `string` | 升级模块标识 |
+  | `version.version` | `string` | 可升级到的目标版本号 |
 
 ---
 
@@ -506,11 +513,21 @@ baseString = HTTP_METHOD + "&" +
 
 ## 三、设备分享 (`/v1/device/share*`)
 
+- **第一版闭环说明**:
+  - 第一版最小闭环按 `share -> 消息(type=4) -> shareFeedback -> 消息(type=5) -> shareRecords -> shareDelete` 推进
+  - `share` 只表示发起分享邀请；真正生效以被分享人执行 `shareFeedback(status=1)` 为准
+  - 第一版设备 owner 仍以 `devices.uid` 为准；设备分享不会转移 owner，也不会修改 `devices.uid`
+
 ### 24. 分享设备
 - **Method**: `POST`
 - **Path**: `/v1/device/share`
 - **Auth**: ✅
 - **参数方式**: Body (JSON)
+- **行为说明**:
+  - 仅设备 owner 可发起分享
+  - 不允许分享给自己
+  - 目标用户不存在、已是当前设备有效分享成员、或已存在待处理邀请时，返回业务失败
+  - 发起成功后，被分享人会在自己的 `GET /v1/message/list` 中收到一条 `type=4` 设备分享邀请消息
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -525,6 +542,9 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/device/shareRecords`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 仅设备 owner 可查看
+  - 第一版返回该设备面向当前 owner 发起过的分享记录与当前有效分享关系
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -535,8 +555,8 @@ baseString = HTTP_METHOD + "&" +
   | `username` | `string?` | 被分享者账号 |
   | `uuid` | `string?` | 设备 UUID |
   | `uid` | `string?` | 被分享者 UID |
-  | `status` | `int?` | 分享状态 |
-  | `role` | `int?` | 角色 |
+  | `status` | `int?` | 分享状态（0=待处理, 1=同意, 2=拒绝, 3=已撤销） |
+  | `role` | `int?` | 角色（1=owner, 2=shared_user） |
 
 ---
 
@@ -545,6 +565,11 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/device/shareDelete`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 仅设备 owner 可执行
+  - 第一版删除语义是“移除当前设备的一条已生效分享关系”
+  - 删除采用逻辑删除；若存在同一目标用户的待处理邀请，可一并撤销，避免后续继续接受
+  - 重复删除同一条已失效关系，第一版按幂等成功处理
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -559,6 +584,12 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/device/shareFeedback`
 - **Auth**: ✅
 - **参数方式**: Body (JSON)
+- **行为说明**:
+  - `msg_id` 来源于 `GET /v1/message/list` 中的 `type=4` 设备分享邀请消息 ID
+  - 仅消息接收方本人可反馈，且仅待处理邀请可反馈一次
+  - `status=1` 表示同意，成功后会建立设备分享关系
+  - `status=2` 表示拒绝，成功后不会建立设备分享关系
+  - 反馈成功后，发起人会在自己的 `GET /v1/message/list` 中收到一条 `type=5` 设备分享结果消息
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -766,6 +797,10 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/event/list`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 第一版仅纳入设备 owner 与设备当前所属家庭成员的事件可见性，不包含设备分享成员
+  - `uuid` 与 `home_id` 同时传入时按交集过滤，不定义覆盖优先级
+  - `start_time` 采用独占上界语义，查询条件为 `event.time < start_time`
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -801,6 +836,10 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/event/existDay`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 第一版仅纳入设备 owner 与设备当前所属家庭成员的事件可见性，不包含设备分享成员
+  - `uuid` 与 `home_id` 同时传入时按交集过滤，不定义覆盖优先级
+  - 返回当前月份内“哪些日期存在事件以及当天事件数量”
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -816,11 +855,16 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/event/unreadNum`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 仅统计当前登录用户在该设备下可见、且尚未标记已读/删除的事件数
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
   | `uuid` | `string` | ✅ | 设备 UUID |
-- **返回值**: TODO（无示例）
+- **返回值** (`data`):
+  | 字段 | 类型 | 说明 |
+  |------|------|------|
+  | `number` | `int` | 未读事件数量 |
 
 ---
 
@@ -829,6 +873,9 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/event/read`
 - **Auth**: ✅
 - **参数方式**: Body (JSON)
+- **行为说明**:
+  - `msg_id` 必须直接取自 `GET /v1/event/list` 返回项里的 `id`
+  - 已读只影响当前登录用户自己的事件盒视角，不影响其他用户
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -843,6 +890,9 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/event/delete`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 删除只影响当前登录用户自己的事件盒视角，不会物理删除底层事件记录
+  - 删除后当前用户的 `event/list` 与 `event/unreadNum` 会立即反映变化
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -860,8 +910,8 @@ baseString = HTTP_METHOD + "&" +
 - **Auth**: ✅
 - **参数方式**: Query
 - **行为说明**:
-  - 第一版返回家庭分享邀请消息（`type=1`）、家庭分享结果消息（`type=2`）与家庭移除通知消息（`type=3`）
-  - 当前 `id` 可直接作为 `homeShareFeedback.msg_id`
+  - 第一版返回家庭分享邀请消息（`type=1`）、家庭分享结果消息（`type=2`）、家庭移除通知消息（`type=3`）、设备分享邀请消息（`type=4`）与设备分享结果消息（`type=5`）
+  - 当前 `id` 可直接作为 `homeShareFeedback.msg_id` 或 `shareFeedback.msg_id`
   - 外层 `uid` 表示消息归属用户；`payload.uid` / `payload.username` 表示消息中的另一方用户
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
@@ -899,7 +949,7 @@ baseString = HTTP_METHOD + "&" +
 - **参数方式**: 无参数
 - **行为说明**:
   - 当前统计的是当前登录用户消息盒中的未读数量
-  - 第一版统计 `type=1` 家庭分享邀请消息、`type=2` 家庭分享结果消息与 `type=3` 家庭移除通知消息
+  - 第一版统计 `type=1`、`type=2`、`type=3`、`type=4`、`type=5` 五类消息的未读数量
 - **返回值** (`data`):
   | 字段 | 类型 | 说明 |
   |------|------|------|
@@ -929,6 +979,10 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/message/delete`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 当前只支持删除单条消息，`message_id` 必传
+  - 删除语义是“当前登录用户删除自己消息盒中的该条消息”
+  - 仅做当前用户视角的逻辑删除，不影响其他用户的消息盒
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|

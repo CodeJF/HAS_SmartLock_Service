@@ -735,6 +735,32 @@ paths:
                 code: 1000
                 msg: ok
                 data: []
+  /v1/device/models:
+    get:
+      tags:
+        - Device
+      summary: 设备型号列表
+      operationId: deviceModels
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版返回服务端当前已配置的设备型号清单。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceModelsEnvelope'
   /v1/device/upName:
     post:
       tags:
@@ -769,6 +795,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/upgradedVersion:
+    get:
+      tags:
+        - Device
+      summary: 获取设备可更新版本
+      operationId: deviceUpgradedVersion
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版按设备已记录的 `model_code` 与 `current_version`，对比服务端已配置的升级版本清单。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: uuid
+          required: true
+          schema:
+            type: string
+            example: '{{uuid}}'
+        - in: query
+          name: flag
+          required: true
+          schema:
+            type: string
+            example: firmware
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceUpgradeEnvelope'
   /v1/device/homeDevices:
     get:
       tags:
@@ -804,6 +868,149 @@ paths:
                 code: 1000
                 msg: ok
                 data: []
+  /v1/device/share:
+    post:
+      tags:
+        - Device
+      summary: 分享设备
+      operationId: deviceShare
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版仅设备 owner 可发起分享；不允许分享给自己；若已存在待处理邀请或目标用户已是有效分享成员，则返回业务失败。
+        发起成功后，被分享人会在消息列表中收到一条 `type=4` 设备分享邀请消息。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceShareRequest'
+            example:
+              username: '{{username}}'
+              uuid: '{{uuid}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/shareRecords:
+    get:
+      tags:
+        - Device
+      summary: 设备分享记录
+      operationId: deviceShareRecords
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版仅设备 owner 可查看，返回该设备对外发起的分享记录与当前有效分享关系。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: uuid
+          required: true
+          schema:
+            type: string
+            example: '{{uuid}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareRecordsEnvelope'
+  /v1/device/shareDelete:
+    delete:
+      tags:
+        - Device
+      summary: 设备 owner 移除分享者
+      operationId: deviceShareDelete
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版仅设备 owner 可执行；删除语义是移除一条已生效分享关系，并可一并撤销同目标用户的待处理邀请；重复删除按幂等成功处理。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: uid
+          required: true
+          schema:
+            type: string
+            example: '{{uid}}'
+        - in: query
+          name: uuid
+          required: true
+          schema:
+            type: string
+            example: '{{uuid}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/device/shareFeedback:
+    post:
+      tags:
+        - Device
+      summary: 设备分享反馈
+      operationId: deviceShareFeedback
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        `msg_id` 来源于 `GET /v1/message/list` 中的 `type=4` 设备分享邀请消息；仅消息接收方本人可反馈，且仅待处理邀请可反馈一次。
+        `status=1` 表示同意并建立设备分享关系；`status=2` 表示拒绝。
+        反馈成功后，发起人会在消息列表中收到一条 `type=5` 设备分享结果消息。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceShareFeedbackRequest'
+            example:
+              msg_id: '{{message_id}}'
+              status: 1
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
   /v1/device/homeUsers:
     get:
       tags:
@@ -1153,6 +1360,214 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+  /v1/event/list:
+    get:
+      tags:
+        - Event
+      summary: 事件列表
+      operationId: eventList
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版仅纳入设备 owner 与当前家庭成员的事件可见性，不包含设备分享成员。
+        `uuid` 与 `home_id` 同时传入时按交集过滤；`start_time` 采用独占上界语义，即 `event.time < start_time`。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: date
+          required: false
+          schema:
+            type: string
+            example: '2026-04-11'
+        - in: query
+          name: uuid
+          required: false
+          schema:
+            type: string
+            example: '{{uuid}}'
+        - in: query
+          name: home_id
+          required: false
+          schema:
+            type: string
+            example: '{{home_id}}'
+        - in: query
+          name: type
+          required: false
+          schema:
+            type: string
+            example: '1,2'
+        - in: query
+          name: start_time
+          required: false
+          schema:
+            type: integer
+            format: int64
+            example: 1770000000
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListEnvelope'
+  /v1/event/existDay:
+    get:
+      tags:
+        - Event
+      summary: 按月查询有事件的日期
+      operationId: eventExistDay
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        第一版仅纳入设备 owner 与当前家庭成员的事件可见性，不包含设备分享成员。
+        `uuid` 与 `home_id` 同时传入时按交集过滤。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: month
+          required: true
+          schema:
+            type: string
+            example: '2026-04'
+        - in: query
+          name: uuid
+          required: false
+          schema:
+            type: string
+            example: '{{uuid}}'
+        - in: query
+          name: home_id
+          required: false
+          schema:
+            type: string
+            example: '{{home_id}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventExistDayEnvelope'
+  /v1/event/unreadNum:
+    get:
+      tags:
+        - Event
+      summary: 未读事件数量
+      operationId: eventUnreadNum
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        仅统计当前登录用户在该设备下可见、且尚未标记已读/删除的事件数。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: uuid
+          required: true
+          schema:
+            type: string
+            example: '{{uuid}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadNumEnvelope'
+  /v1/event/read:
+    post:
+      tags:
+        - Event
+      summary: 标记事件已读
+      operationId: eventRead
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        `msg_id` 必须直接取自 `GET /v1/event/list` 返回项里的 `id`，且已读只影响当前用户自己的事件盒视角。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventReadRequest'
+            example:
+              msg_id: '{{event_id}}'
+              uuid: '{{uuid}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/event/delete:
+    delete:
+      tags:
+        - Event
+      summary: 删除事件
+      operationId: eventDelete
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        删除只影响当前用户视角，不会删除底层事件记录。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: msg_id
+          required: true
+          schema:
+            type: string
+            example: '{{event_id}}'
+        - in: query
+          name: uuid
+          required: false
+          schema:
+            type: string
+            example: '{{uuid}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
   /v1/message/list:
     get:
       tags:
@@ -1161,7 +1576,7 @@ paths:
       operationId: messageList
       description: |
         用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
-        第一版返回家庭分享邀请消息（type=1）、家庭分享结果消息（type=2）与家庭移除通知消息（type=3）。
+        第一版返回 `type=1` 家庭分享邀请、`type=2` 家庭分享结果、`type=3` 家庭移除通知、`type=4` 设备分享邀请、`type=5` 设备分享结果。
       security:
         - bearerAuth: []
       parameters:
@@ -1193,7 +1608,7 @@ paths:
       operationId: messageUnreadNum
       description: |
         用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
-        第一版统计 `type=1`、`type=2` 与 `type=3` 三类家庭消息的未读数。
+        第一版统计 `type=1`、`type=2`、`type=3`、`type=4`、`type=5` 五类消息的未读数。
       security:
         - bearerAuth: []
       parameters:
@@ -1238,6 +1653,38 @@ paths:
               $ref: '#/components/schemas/MessageReadRequest'
             example:
               message_id: '{{message_id}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+  /v1/message/delete:
+    delete:
+      tags:
+        - Message
+      summary: 删除消息
+      operationId: messageDelete
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        当前只支持删除单条消息，且只允许删除当前登录用户自己消息盒中的消息。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: message_id
+          required: true
+          schema:
+            type: string
+            example: '{{message_id}}'
       responses:
         '200':
           description: 成功
@@ -1603,6 +2050,49 @@ components:
           type: string
         uid:
           type: string
+    EventReadRequest:
+      type: object
+      required:
+        - msg_id
+        - uuid
+      properties:
+        msg_id:
+          type: string
+        uuid:
+          type: string
+    DeviceUpgradeQuery:
+      type: object
+      required:
+        - uuid
+        - flag
+      properties:
+        uuid:
+          type: string
+        flag:
+          type: string
+    DeviceShareRequest:
+      type: object
+      required:
+        - username
+        - uuid
+      properties:
+        username:
+          type: string
+        uuid:
+          type: string
+    DeviceShareFeedbackRequest:
+      type: object
+      required:
+        - msg_id
+        - status
+      properties:
+        msg_id:
+          type: string
+        status:
+          type: integer
+          enum:
+            - 1
+            - 2
     MessageReadRequest:
       type: object
       properties:
@@ -1891,6 +2381,60 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/NewDevice'
+    DeviceModel:
+      type: object
+      required:
+        - model_code
+        - status
+        - model_name
+        - category
+        - show_name
+        - default_name
+        - thumbnail
+      properties:
+        model_code:
+          type: string
+        status:
+          type: integer
+        model_name:
+          type: string
+        category:
+          type: string
+        show_name:
+          type: string
+        default_name:
+          type: string
+        thumbnail:
+          type: string
+    DeviceModelsEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeviceModel'
+    DeviceUpgradeVersion:
+      type: object
+      required:
+        - flag
+      properties:
+        flag:
+          type: string
+        version:
+          type: string
+    DeviceUpgradeData:
+      type: object
+      required:
+        - has
+      properties:
+        has:
+          type: boolean
+        version:
+          allOf:
+            - $ref: '#/components/schemas/DeviceUpgradeVersion'
+          nullable: true
     HomeUsersEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'
@@ -1900,6 +2444,93 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/HomeUser'
+    EventPayload:
+      type: object
+      properties:
+        result:
+          type: integer
+    Event:
+      type: object
+      required:
+        - id
+        - uuid
+        - type
+        - is_read
+        - time
+        - device_time
+      properties:
+        id:
+          type: string
+        uuid:
+          type: string
+        device_name:
+          type: string
+        type:
+          type: integer
+        is_read:
+          type: integer
+        time:
+          type: integer
+          format: int64
+        device_time:
+          type: integer
+          format: int64
+        thumbnail:
+          type: string
+        payload:
+          $ref: '#/components/schemas/EventPayload'
+    EventListData:
+      type: object
+      required:
+        - has
+        - list
+      properties:
+        has:
+          type: boolean
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+    EventListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/EventListData'
+    EventExistDayEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              additionalProperties:
+                type: integer
+    ShareRecord:
+      type: object
+      properties:
+        username:
+          type: string
+        uuid:
+          type: string
+        uid:
+          type: string
+        status:
+          type: integer
+          description: 0=待处理, 1=同意, 2=拒绝, 3=已撤销
+        role:
+          type: integer
+          description: 1=owner, 2=shared_user
+    ShareRecordsEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShareRecord'
     MessagePayload:
       type: object
       required:
@@ -1974,3 +2605,10 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/UnreadNumData'
+    DeviceUpgradeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceUpgradeData'

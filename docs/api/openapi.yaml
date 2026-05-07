@@ -51,6 +51,26 @@ paths:
                 msg: ok
                 data:
                   timestamp: 1711857600
+  /getUrl:
+    get:
+      tags:
+        - System
+      summary: 获取服务器地址
+      operationId: getServerURL
+      parameters:
+        - in: query
+          name: username
+          required: true
+          schema:
+            type: string
+            example: '{{username}}'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetURLResponseEnvelope'
   /v1/user/registerSend:
     post:
       tags:
@@ -679,6 +699,7 @@ paths:
       operationId: deviceList
       description: |
         用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        `State` 字段来自设备影子（shadow），当前返回 `desired` 与 `reported` 两部分实时状态。
       security:
         - bearerAuth: []
       parameters:
@@ -833,6 +854,94 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeviceUpgradeEnvelope'
+  /v1/device/remove:
+    delete:
+      tags:
+        - Device
+      summary: 移除设备
+      operationId: deviceRemove
+      description: |
+        用户端常规签名接口。除签名头外，Auth 为必需，因此还需要 access_token Header。
+        当前接口承载设备解绑语义：先向设备下发 `func/UnBind`，再清理后端绑定关系与 MQTT 凭证/ACL/缓存。
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AppIDHeader'
+        - $ref: '#/components/parameters/AppVersionHeader'
+        - $ref: '#/components/parameters/PhoneCodeHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/RequestIDHeader'
+        - $ref: '#/components/parameters/SignHeader'
+        - $ref: '#/components/parameters/AccessTokenHeader'
+        - in: query
+          name: uuid
+          required: true
+          schema:
+            type: string
+            example: '{{uuid}}'
+        - in: query
+          name: clean_data
+          required: false
+          schema:
+            type: boolean
+            example: true
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullEnvelope'
+      x-realtime-websocket:
+        path: /ws
+        handshakeHeaders:
+          - access_token
+          - phone_code
+        requestFields:
+          - msg_id
+          - method
+          - uuid
+          - time
+          - version
+          - data
+        immediateMethods:
+          - SetAttribute
+          - GetAttribute
+          - SetNotifyStatus
+          - GetNotifyStatus
+          - SleepState
+          - Awake
+          - Lock
+          - Unlock
+          - SetBluetoothSwitch
+          - DelBluetoothSwitch
+          - OtaUpgrade
+          - Reboot
+          - ResetSetting
+          - Call
+          - OthersAnswer
+        delayedMethods:
+          - CreateUser
+          - UpdateUser
+          - DelUser
+          - AddPwd
+          - UpdatePwd
+          - DelPwd
+          - SetBackgroundImage
+          - ChangeCam
+        stubMethods:
+          - LeaveWord
+          - WebrtcSignal
+          - SetP2pState
+          - QuickReplyFile
+        pushMethods:
+          - DeviceBind
+          - DeviceUnBind
+          - DevicesChanged
+          - AttributeChange
+          - Ring
+          - RingStop
+          - ServerFunc.<funcName>
   /v1/device/homeDevices:
     get:
       tags:
@@ -1833,6 +1942,34 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/TimeData'
+    GetURLResponse:
+      type: object
+      required:
+        - exist
+        - url
+      properties:
+        exist:
+          type: boolean
+        url:
+          type: object
+          required:
+            - api
+            - mqtt
+            - websocket
+          properties:
+            api:
+              type: string
+            mqtt:
+              type: string
+            websocket:
+              type: string
+    GetURLResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/GetURLResponse'
     NullEnvelope:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'

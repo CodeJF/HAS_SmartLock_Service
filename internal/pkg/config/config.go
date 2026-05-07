@@ -14,6 +14,10 @@ type Config struct {
 	AppName               string
 	AppEnv                string
 	HTTPAddr              string
+	WsPath                string
+	PublicAPIURL          string
+	PublicMqttURL         string
+	PublicWebSocketURL    string
 	DBDSN                 string
 	MySQLDSN              string
 	JWTSecret             string
@@ -39,6 +43,20 @@ type Config struct {
 	OSSSTSRoleARN         string
 	OSSSTSSessionPrefix   string
 	OSSSTSDuration        int
+	MQTTHost              string
+	MQTTPort              int
+	MQTTUsername          string
+	MQTTPassword          string
+	MQTTClientID          string
+	MQTTKeepAliveSeconds  int
+	MQTTPingTimeoutSeconds int
+	MQTTCleanSession      bool
+	MQTTAutoReconnect     bool
+	RedisAddr             string
+	RedisPassword         string
+	RedisDB               int
+	MongoURI              string
+	MongoDatabase         string
 }
 
 type DeviceModelConfig struct {
@@ -64,6 +82,10 @@ func Load() Config {
 		AppName:               v.GetString("APP_NAME"),
 		AppEnv:                v.GetString("APP_ENV"),
 		HTTPAddr:              v.GetString("HTTP_ADDR"),
+		WsPath:                v.GetString("WS_PATH"),
+		PublicAPIURL:          v.GetString("PUBLIC_API_URL"),
+		PublicMqttURL:         v.GetString("PUBLIC_MQTT_URL"),
+		PublicWebSocketURL:    v.GetString("PUBLIC_WEBSOCKET_URL"),
 		DBDSN:                 v.GetString("DB_DSN"),
 		MySQLDSN:              v.GetString("MYSQL_DSN"),
 		JWTSecret:             v.GetString("JWT_SECRET"),
@@ -86,6 +108,20 @@ func Load() Config {
 		OSSSTSRoleARN:         v.GetString("OSS_STS_ROLE_ARN"),
 		OSSSTSSessionPrefix:   v.GetString("OSS_STS_SESSION_PREFIX"),
 		OSSSTSDuration:        v.GetInt("OSS_STS_DURATION_SECONDS"),
+		MQTTHost:              v.GetString("MQTT_HOST"),
+		MQTTPort:              v.GetInt("MQTT_PORT"),
+		MQTTUsername:          v.GetString("MQTT_USERNAME"),
+		MQTTPassword:          v.GetString("MQTT_PASSWORD"),
+		MQTTClientID:          v.GetString("MQTT_CLIENT_ID"),
+		MQTTKeepAliveSeconds:  v.GetInt("MQTT_KEEPALIVE_SECONDS"),
+		MQTTPingTimeoutSeconds: v.GetInt("MQTT_PING_TIMEOUT_SECONDS"),
+		MQTTCleanSession:      v.GetBool("MQTT_CLEAN_SESSION"),
+		MQTTAutoReconnect:     v.GetBool("MQTT_AUTO_RECONNECT"),
+		RedisAddr:             v.GetString("REDIS_ADDR"),
+		RedisPassword:         v.GetString("REDIS_PASSWORD"),
+		RedisDB:               v.GetInt("REDIS_DB"),
+		MongoURI:              v.GetString("MONGO_URI"),
+		MongoDatabase:         v.GetString("MONGO_DATABASE"),
 	}
 
 	if raw := strings.TrimSpace(cfg.DeviceModelSecretsRaw); raw != "" {
@@ -144,6 +180,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("APP_NAME", "has-smartlock-service")
 	v.SetDefault("APP_ENV", "development")
 	v.SetDefault("HTTP_ADDR", ":8080")
+	v.SetDefault("WS_PATH", "/ws")
+	v.SetDefault("PUBLIC_API_URL", "")
+	v.SetDefault("PUBLIC_MQTT_URL", "")
+	v.SetDefault("PUBLIC_WEBSOCKET_URL", "")
 	v.SetDefault("DB_DSN", "")
 	v.SetDefault("MYSQL_DSN", "")
 	v.SetDefault("JWT_SECRET", "dev-secret-change-me")
@@ -166,6 +206,20 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("OSS_STS_ROLE_ARN", "")
 	v.SetDefault("OSS_STS_SESSION_PREFIX", "has-smartlock-avatar")
 	v.SetDefault("OSS_STS_DURATION_SECONDS", 900)
+	v.SetDefault("MQTT_HOST", "")
+	v.SetDefault("MQTT_PORT", 1883)
+	v.SetDefault("MQTT_USERNAME", "")
+	v.SetDefault("MQTT_PASSWORD", "")
+	v.SetDefault("MQTT_CLIENT_ID", "")
+	v.SetDefault("MQTT_KEEPALIVE_SECONDS", 60)
+	v.SetDefault("MQTT_PING_TIMEOUT_SECONDS", 2)
+	v.SetDefault("MQTT_CLEAN_SESSION", false)
+	v.SetDefault("MQTT_AUTO_RECONNECT", true)
+	v.SetDefault("REDIS_ADDR", "")
+	v.SetDefault("REDIS_PASSWORD", "")
+	v.SetDefault("REDIS_DB", 0)
+	v.SetDefault("MONGO_URI", "")
+	v.SetDefault("MONGO_DATABASE", "has_smartlock")
 }
 
 func findRepoRoot() (string, bool) {

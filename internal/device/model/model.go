@@ -5,12 +5,18 @@ import "time"
 type Device struct {
 	ID             uint   `gorm:"primaryKey"`
 	UUID           string `gorm:"size:64;uniqueIndex;not null"`
+	MAC            string `gorm:"size:64"`
 	DeviceID       string `gorm:"size:64;uniqueIndex;not null"`
 	UID            string `gorm:"size:64;not null"`
 	BindType       int    `gorm:"not null;default:1"`
 	Secret         string `gorm:"size:191;not null"`
 	ModelCode      string `gorm:"size:64"`
 	CurrentVersion string `gorm:"size:128"`
+	Zone           string `gorm:"size:32"`
+	Online         int    `gorm:"not null;default:0"`
+	OnlineIP       int64  `gorm:"not null;default:0"`
+	UpdateTime     int64  `gorm:"not null;default:0"`
+	ActiveTime     int64  `gorm:"not null;default:0"`
 	Name           string `gorm:"size:191;not null"`
 	FirstBindTime  int64  `gorm:"not null"`
 	BindTime       int64  `gorm:"not null"`

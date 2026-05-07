@@ -367,7 +367,11 @@ baseString = HTTP_METHOD + "&" +
   | `bind_time` | `int` | 最近绑定时间（Unix 秒） |
   | `State` | `object` | 设备状态（影子） |
   | `State.desired` | `object` | 期望状态 |
-  | `State.reported` | `object` | 设备上报状态（见下表） |
+  | `State.reported` | `object` | 设备上报状态（来自实时影子；见下表） |
+
+  **实时补充说明**:
+  - 当前服务已接入单服务版实时链路，`State.desired / State.reported` 语义来自设备影子，不再要求完全依赖 MySQL 静态列拼装
+  - 设备在线状态 `State.reported.Online` 的单一真值来自 MQTT broker 的 `$SYS connected/disconnected` 事件
 
   **`State.reported` 字段**:
   | 字段 | 类型 | 说明 |
@@ -493,6 +497,10 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/v1/device/remove`
 - **Auth**: ✅
 - **参数方式**: Query
+- **行为说明**:
+  - 当前接口承载设备解绑语义
+  - 执行顺序固定为：先向设备下发 `func/UnBind {clean_data}`，再清理后端绑定关系与 MQTT 凭证/ACL/缓存
+  - 删除后该设备会从当前主用户视角移除；`clean_data=true` 时会要求设备清空本地用户/密码数据
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -1277,7 +1285,10 @@ baseString = HTTP_METHOD + "&" +
 - **Path**: `/time`
 - **Auth**: ❌
 - **参数方式**: 无参数
-- **返回值**: TODO（无示例）
+- **返回值** (`data`):
+  | 字段 | 类型 | 说明 |
+  |------|------|------|
+  | `timestamp` | `int` | 当前服务端 Unix 秒时间戳 |
 
 ---
 
@@ -1298,6 +1309,40 @@ baseString = HTTP_METHOD + "&" +
   | `url.api` | `string` | API 服务地址 |
   | `url.mqtt` | `string` | MQTT 服务地址 |
   | `url.websocket` | `string` | WebSocket 服务地址 |
+
+---
+
+## 十二、实时通道补充说明
+
+### 66. WebSocket 实时通道
+- **Path**: `/ws`
+- **协议**: `ws://` / `wss://`
+- **鉴权 Header**:
+  | 字段 | 类型 | 必填 | 说明 |
+  |------|------|------|------|
+  | `access_token` | `string` | ✅ | 用户 access token |
+  | `phone_code` | `string` | ✅ | 端标识；同一 `uid + phone_code` 新连接会踢旧连接 |
+- **请求报文骨架**:
+  | 字段 | 类型 | 必填 | 说明 |
+  |------|------|------|------|
+  | `msg_id` | `string` | ✅ | 请求唯一 ID |
+  | `method` | `string` | ✅ | 方法名 |
+  | `uuid` | `string` | ✅ | 设备 UUID |
+  | `time` | `int` | ✅ | Unix 秒时间戳 |
+  | `version` | `string` | ✅ | 协议版本 |
+  | `data` | `object` | ❌ | 方法参数 |
+- **说明**:
+  - 当前已接入 MQTT ↔ WebSocket 实时桥接
+  - 当前已接入的前端 method 集合为：
+    `SetAttribute`、`GetAttribute`、`SetNotifyStatus`、`GetNotifyStatus`、`SleepState`、`Awake`、`CreateUser`、`UpdateUser`、`DelUser`、`AddPwd`、`UpdatePwd`、`DelPwd`、`Lock`、`Unlock`、`SetBluetoothSwitch`、`DelBluetoothSwitch`、`OtaUpgrade`、`Reboot`、`ResetSetting`、`SetBackgroundImage`、`Call`、`ChangeCam`、`OthersAnswer`
+  - 当前以“协议完整 + 受控桩”接入的 method 为：
+    `LeaveWord`、`WebrtcSignal`、`SetP2pState`、`QuickReplyFile`
+  - 立即响应 method：`SetAttribute`、`GetAttribute`、`SetNotifyStatus`、`GetNotifyStatus`、`SleepState`、`Awake`、`Lock`、`Unlock`、`SetBluetoothSwitch`、`DelBluetoothSwitch`、`OtaUpgrade`、`Reboot`、`ResetSetting`、`Call`、`OthersAnswer`
+  - 延迟响应 method：`CreateUser`、`UpdateUser`、`DelUser`、`AddPwd`、`UpdatePwd`、`DelPwd`、`SetBackgroundImage`、`ChangeCam`；这类方法必须等设备 `func/<name>/resp` 或协议定义的设备回执后，再通过 `ServerFunc.<name>` 推回前端
+  - `SetBackgroundImage`、`ChangeCam` 这类方法按 `phone_code` 单端回推，不广播到同账号其他端
+  - 当前服务端主动推送 method 包括：
+    `DeviceBind`、`DeviceUnBind`、`DevicesChanged`、`AttributeChange`、`Ring`、`RingStop`、`ServerFunc.<funcName>`、`ServerFunc.SetBackgroundImage`、`ServerFunc.ChangeCam`、`ServerFunc.WebrtcSignal`
+  - `AttributeChange` 同时承载属性变化和设备上下线变化；`Online` 字段也通过该 method 下发
 
 ---
 

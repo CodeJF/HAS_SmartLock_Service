@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,9 @@ import (
 	devicerepo "has-smartlock-service/internal/device/repository"
 	homerepo "has-smartlock-service/internal/home/repository"
 	"has-smartlock-service/internal/pkg/config"
+	"has-smartlock-service/internal/pkg/redisx"
+	eventstore "has-smartlock-service/internal/realtime/eventstore"
+	"has-smartlock-service/internal/realtime/shadow"
 	usermodel "has-smartlock-service/internal/user/model"
 	userrepo "has-smartlock-service/internal/user/repository"
 )
@@ -123,21 +127,44 @@ type DeviceUpgradeInput struct {
 	Flag string
 }
 
+type DeviceRemoveInput struct {
+	UUID      string
+	CleanData bool
+}
+
+type MQTTClient interface {
+	Publish(ctx context.Context, topic string, payload any) error
+}
+
+type RealtimeNotifier interface {
+	NotifyDeviceBind(ctx context.Context, uid, uuid string)
+	NotifyDeviceUnBind(ctx context.Context, uid, uuid string)
+}
+
 type Service struct {
 	deviceRepo     *devicerepo.Repository
 	homeRepo       *homerepo.Repository
 	userRepo       *userrepo.Repository
+	redisClient    *redisx.Client
+	shadowStore    shadow.Store
+	eventStore     eventstore.Store
+	mqttClient     MQTTClient
 	deviceModels   []DeviceModelItem
 	deviceUpgrades []config.DeviceUpgradeConfig
 	clock          func() time.Time
 	shareMsgIDGen  func() string
+	realtime       RealtimeNotifier
 }
 
-func New(deviceRepo *devicerepo.Repository, homeRepo *homerepo.Repository, userRepo *userrepo.Repository, cfg config.Config) *Service {
+func New(deviceRepo *devicerepo.Repository, homeRepo *homerepo.Repository, userRepo *userrepo.Repository, redisClient *redisx.Client, shadowStore shadow.Store, eventStore eventstore.Store, mqttClient MQTTClient, cfg config.Config) *Service {
 	return &Service{
 		deviceRepo:     deviceRepo,
 		homeRepo:       homeRepo,
 		userRepo:       userRepo,
+		redisClient:    redisClient,
+		shadowStore:    shadowStore,
+		eventStore:     eventStore,
+		mqttClient:     mqttClient,
 		deviceModels:   buildDeviceModels(cfg),
 		deviceUpgrades: buildDeviceUpgrades(cfg),
 		clock:          time.Now,
@@ -157,6 +184,16 @@ func (s *Service) WithShareMessageIDGenerator(generator func() string) *Service 
 	return s
 }
 
+func (s *Service) WithMQTTClient(client MQTTClient) *Service {
+	s.mqttClient = client
+	return s
+}
+
+func (s *Service) WithRealtimeNotifier(notifier RealtimeNotifier) *Service {
+	s.realtime = notifier
+	return s
+}
+
 func (s *Service) Bind(input BindInput) error {
 	if strings.TrimSpace(input.Model) == "" ||
 		strings.TrimSpace(input.UUID) == "" ||
@@ -173,44 +210,80 @@ func (s *Service) Bind(input BindInput) error {
 	}
 
 	now := time.Now().Unix()
+	password := redisx.RandString(16)
 	device, err := s.deviceRepo.FindDeviceByUUID(strings.TrimSpace(input.UUID))
 	if err != nil {
 		if !devicerepo.IsNotFound(err) {
 			return err
 		}
 
-		return s.deviceRepo.CreateDevice(&devicemodel.Device{
+		if err := s.deviceRepo.CreateDevice(&devicemodel.Device{
 			UUID:           strings.TrimSpace(input.UUID),
+			MAC:            strings.TrimSpace(input.MAC),
 			DeviceID:       strings.TrimSpace(input.UUID),
 			UID:            strings.TrimSpace(input.UID),
 			BindType:       1,
-			Secret:         strings.TrimSpace(input.UUID),
+			Secret:         password,
 			ModelCode:      strings.TrimSpace(input.Model),
 			CurrentVersion: strings.TrimSpace(input.Version),
+			Zone:           strings.TrimSpace(input.Zone),
 			Name:           strings.TrimSpace(input.Model),
+			Online:         0,
+			UpdateTime:     now,
+			ActiveTime:     now,
 			FirstBindTime:  now,
 			BindTime:       now,
-		})
+		}); err != nil {
+			return err
+		}
+	} else {
+		attrs := map[string]any{
+			"uid":             strings.TrimSpace(input.UID),
+			"bind_type":       1,
+			"bind_time":       now,
+			"model_code":      strings.TrimSpace(input.Model),
+			"current_version": strings.TrimSpace(input.Version),
+			"mac":             strings.TrimSpace(input.MAC),
+			"zone":            strings.TrimSpace(input.Zone),
+			"active_time":     now,
+		}
+		if strings.TrimSpace(device.DeviceID) == "" {
+			attrs["device_id"] = strings.TrimSpace(input.UUID)
+		}
+		if strings.TrimSpace(device.Secret) == "" {
+			attrs["secret"] = password
+		} else {
+			password = device.Secret
+		}
+		if strings.TrimSpace(device.Name) == "" {
+			attrs["name"] = strings.TrimSpace(input.Model)
+		}
+		if err := s.deviceRepo.UpdateDeviceByID(device.ID, attrs); err != nil {
+			return err
+		}
 	}
 
-	attrs := map[string]any{
-		"uid":             strings.TrimSpace(input.UID),
-		"bind_type":       1,
-		"bind_time":       now,
-		"model_code":      strings.TrimSpace(input.Model),
-		"current_version": strings.TrimSpace(input.Version),
+	ctx := context.Background()
+	if s.redisClient != nil {
+		if err := s.redisClient.SetMQTTCredentials(ctx, strings.TrimSpace(input.UUID), password, false); err != nil {
+			return err
+		}
+		if err := s.redisClient.SetMQTTACL(ctx, strings.TrimSpace(input.UUID), redisx.BuildDeviceACL(strings.TrimSpace(input.Model), strings.TrimSpace(input.UUID))); err != nil {
+			return err
+		}
+		if err := s.redisClient.SetDeviceBinding(ctx, strings.TrimSpace(input.UUID), strings.TrimSpace(input.UID), 1); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(device.DeviceID) == "" {
-		attrs["device_id"] = strings.TrimSpace(input.UUID)
+	if s.shadowStore != nil {
+		if err := s.shadowStore.EnsureDevice(ctx, strings.TrimSpace(input.UUID), strings.TrimSpace(input.UID)); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(device.Secret) == "" {
-		attrs["secret"] = strings.TrimSpace(input.UUID)
+	if s.realtime != nil {
+		s.realtime.NotifyDeviceBind(ctx, strings.TrimSpace(input.UID), strings.TrimSpace(input.UUID))
 	}
-	if strings.TrimSpace(device.Name) == "" {
-		attrs["name"] = strings.TrimSpace(input.Model)
-	}
-
-	return s.deviceRepo.UpdateDeviceByID(device.ID, attrs)
+	return nil
 }
 
 func (s *Service) DeviceLogin(input DeviceLoginInput) error {
@@ -240,6 +313,8 @@ func (s *Service) DeviceLogin(input DeviceLoginInput) error {
 	return s.deviceRepo.UpdateDeviceByID(device.ID, map[string]any{
 		"model_code":      strings.TrimSpace(input.Model),
 		"current_version": strings.TrimSpace(input.Version),
+		"zone":            strings.TrimSpace(input.Zone),
+		"active_time":     time.Now().Unix(),
 	})
 }
 
@@ -270,7 +345,7 @@ func (s *Service) List(uid, homeID string) ([]DeviceItem, error) {
 		}
 	}
 
-	return mapVisibleDevices(devices), nil
+	return s.mapVisibleDevices(devices), nil
 }
 
 func (s *Service) NewList(uid string) ([]NewDeviceItem, error) {
@@ -316,6 +391,64 @@ func (s *Service) UpdateName(uid, uuid, name string) error {
 	}
 
 	return s.deviceRepo.UpdateDeviceNameByID(device.ID, strings.TrimSpace(name))
+}
+
+func (s *Service) Remove(uid string, input DeviceRemoveInput) error {
+	user, err := s.mustFindUser(uid)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(input.UUID) == "" {
+		return ErrInvalidInput
+	}
+
+	device, err := s.deviceRepo.FindDeviceByUUID(strings.TrimSpace(input.UUID))
+	if err != nil {
+		if devicerepo.IsNotFound(err) {
+			return ErrDeviceNotFound
+		}
+		return err
+	}
+	if device.UID != user.UID {
+		return ErrDeviceForbidden
+	}
+
+	payload := map[string]any{
+		"msg_id": fmt.Sprintf("unbind_%d", time.Now().UnixNano()),
+		"time":   time.Now().Unix(),
+		"data": map[string]any{
+			"clean_data": boolToInt(input.CleanData),
+		},
+	}
+	if s.mqttClient != nil && strings.TrimSpace(device.ModelCode) != "" {
+		topic := fmt.Sprintf("/thing/%s/%s/func/UnBind", strings.TrimSpace(device.ModelCode), strings.TrimSpace(device.UUID))
+		_ = s.mqttClient.Publish(context.Background(), topic, payload)
+	}
+
+	now := time.Now()
+	if err := s.deviceRepo.SoftDeleteDeviceByID(device.ID, now); err != nil {
+		return err
+	}
+	if s.shadowStore != nil {
+		if err := s.shadowStore.Delete(context.Background(), device.UUID); err != nil {
+			return err
+		}
+	}
+	if s.redisClient != nil {
+		if err := s.redisClient.DeleteMQTTCredentials(context.Background(), device.UUID); err != nil {
+			return err
+		}
+		if err := s.redisClient.DeleteMQTTACL(context.Background(), device.UUID); err != nil {
+			return err
+		}
+		if err := s.redisClient.DeleteDeviceBinding(context.Background(), device.UUID); err != nil {
+			return err
+		}
+	}
+	if s.realtime != nil {
+		s.realtime.NotifyDeviceUnBind(context.Background(), user.UID, device.UUID)
+	}
+	return nil
 }
 
 func (s *Service) Models(uid string) ([]DeviceModelItem, error) {
@@ -686,9 +819,19 @@ func (s *Service) mustFindUser(uid string) (*usermodel.User, error) {
 	return user, nil
 }
 
-func mapVisibleDevices(items []devicerepo.VisibleDevice) []DeviceItem {
+func (s *Service) mapVisibleDevices(items []devicerepo.VisibleDevice) []DeviceItem {
 	result := make([]DeviceItem, 0, len(items))
 	for _, item := range items {
+		state := DeviceState{
+			Desired:  map[string]any{},
+			Reported: map[string]any{},
+		}
+		if s.shadowStore != nil {
+			if shadowDoc, err := s.shadowStore.Get(context.Background(), item.UUID); err == nil && shadowDoc != nil {
+				state.Desired = shadowDoc.State.Desired
+				state.Reported = shadowDoc.State.Reported
+			}
+		}
 		result = append(result, DeviceItem{
 			ID:            int(item.ID),
 			UUID:          item.UUID,
@@ -699,13 +842,17 @@ func mapVisibleDevices(items []devicerepo.VisibleDevice) []DeviceItem {
 			Name:          item.Name,
 			FirstBindTime: item.FirstBindTime,
 			BindTime:      item.BindTime,
-			State: DeviceState{
-				Desired:  map[string]any{},
-				Reported: map[string]any{},
-			},
+			State:         state,
 		})
 	}
 	return result
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func mapNewDevice(item devicemodel.Device) NewDeviceItem {

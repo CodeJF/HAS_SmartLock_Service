@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"has-smartlock-service/internal/pkg/config"
 	"has-smartlock-service/internal/pkg/db"
 	"has-smartlock-service/internal/pkg/protocol"
+	eventstore "has-smartlock-service/internal/realtime/eventstore"
 	usermodel "has-smartlock-service/internal/user/model"
 )
 
@@ -2958,6 +2960,8 @@ func newTestApp(t *testing.T) *App {
 		OSSUploadURLTTL:       900,
 		OSSSTSRoleARN:         "acs:ram::1234567890123456:role/test-role",
 		OSSSTSDuration:        900,
+		MongoURI:              "memory://local",
+		MongoDatabase:         "has_smartlock_test",
 	}
 
 	database, err := db.Open(cfg)
@@ -3006,6 +3010,8 @@ func newExpiredCodeTestApp(t *testing.T) *App {
 		OSSUploadURLTTL:       900,
 		OSSSTSRoleARN:         "acs:ram::1234567890123456:role/test-role",
 		OSSSTSDuration:        900,
+		MongoURI:              "memory://local",
+		MongoDatabase:         "has_smartlock_test",
 	}
 
 	database, err := db.Open(cfg)
@@ -3519,6 +3525,54 @@ func insertDeviceEventForTest(t *testing.T, application *App, homeBusinessID, uu
 	}
 	if err := application.DB().Create(&event).Error; err != nil {
 		t.Fatalf("create device event fixture: %v", err)
+	}
+
+	if application.eventStore != nil {
+		payloadMap := map[string]any{}
+		if strings.TrimSpace(payload) != "" {
+			if err := json.Unmarshal([]byte(payload), &payloadMap); err != nil {
+				t.Fatalf("unmarshal event payload fixture: %v", err)
+			}
+		}
+		belongTo := []eventstore.BelongTo{{UID: device.UID, IsRead: 0}}
+		seen := map[string]struct{}{device.UID: {}}
+		if homeID != nil {
+			var members []homemodel.HomeMember
+			if err := application.DB().Where("home_id = ? AND deleted_at IS NULL", *homeID).Find(&members).Error; err != nil {
+				t.Fatalf("find home members for event fixture: %v", err)
+			}
+			for _, member := range members {
+				var user usermodel.User
+				if err := application.DB().Where("id = ?", member.UserID).Take(&user).Error; err != nil {
+					t.Fatalf("find home member user for event fixture: %v", err)
+				}
+				if _, ok := seen[user.UID]; ok {
+					continue
+				}
+				seen[user.UID] = struct{}{}
+				belongTo = append(belongTo, eventstore.BelongTo{UID: user.UID, IsRead: 0})
+			}
+		}
+		if err := application.eventStore.Create(context.Background(), eventstore.Event{
+			ID:   strconv.FormatUint(uint64(event.ID), 10),
+			UUID: uuid,
+			HomeID: func() string {
+				if homeID != nil {
+					return strconv.FormatUint(uint64(*homeID), 10)
+				}
+				return ""
+			}(),
+			DeviceName: device.Name,
+			Type:       eventType,
+			Time:       eventTime,
+			DeviceTime: deviceTime,
+			Thumbnail:  thumbnail,
+			Payload:    payloadMap,
+			BelongTo:   belongTo,
+			ExpireAt:   time.Now().Add(7 * 24 * time.Hour),
+		}); err != nil {
+			t.Fatalf("create realtime event fixture: %v", err)
+		}
 	}
 
 	return strconv.FormatUint(uint64(event.ID), 10)

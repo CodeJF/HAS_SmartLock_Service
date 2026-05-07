@@ -12,10 +12,18 @@ import (
 type VisibleDevice struct {
 	ID            uint
 	UUID          string
+	MAC           string
 	DeviceID      string
 	UID           string
 	BindType      int
 	Secret        string
+	ModelCode     string
+	CurrentVersion string
+	Zone          string
+	Online        int
+	OnlineIP      int64
+	UpdateTime    int64
+	ActiveTime    int64
 	Name          string
 	FirstBindTime int64
 	BindTime      int64
@@ -104,12 +112,12 @@ func (r *Repository) ListVisibleDevices(userID uint, uid string) ([]VisibleDevic
 	var rows []VisibleDevice
 
 	err := r.db.Table("devices").
-		Select("devices.id as id, devices.uuid, devices.device_id, devices.uid, CASE WHEN devices.uid = ? THEN devices.bind_type WHEN device_share_members.id IS NOT NULL THEN 2 ELSE devices.bind_type END as bind_type, devices.secret, devices.name, devices.first_bind_time, devices.bind_time", uid).
+		Select("devices.id as id, devices.uuid, devices.mac, devices.device_id, devices.uid, CASE WHEN devices.uid = ? THEN devices.bind_type WHEN device_share_members.id IS NOT NULL THEN 2 ELSE devices.bind_type END as bind_type, devices.secret, devices.model_code, devices.current_version, devices.zone, devices.online, devices.online_ip, devices.update_time, devices.active_time, devices.name, devices.first_bind_time, devices.bind_time", uid).
 		Joins("LEFT JOIN home_devices ON home_devices.device_id = devices.id AND home_devices.deleted_at IS NULL").
 		Joins("LEFT JOIN home_members ON home_members.home_id = home_devices.home_id AND home_members.user_id = ? AND home_members.deleted_at IS NULL", userID).
 		Joins("LEFT JOIN device_share_members ON device_share_members.device_id = devices.id AND device_share_members.user_id = ? AND device_share_members.deleted_at IS NULL", userID).
 		Where("devices.deleted_at IS NULL AND (devices.uid = ? OR home_members.id IS NOT NULL OR device_share_members.id IS NOT NULL)", uid).
-		Group("devices.id, devices.uuid, devices.device_id, devices.uid, devices.bind_type, device_share_members.id, devices.secret, devices.name, devices.first_bind_time, devices.bind_time").
+		Group("devices.id, devices.uuid, devices.mac, devices.device_id, devices.uid, devices.bind_type, device_share_members.id, devices.secret, devices.model_code, devices.current_version, devices.zone, devices.online, devices.online_ip, devices.update_time, devices.active_time, devices.name, devices.first_bind_time, devices.bind_time").
 		Order("devices.id DESC").
 		Scan(&rows).Error
 	if err != nil {
@@ -123,7 +131,7 @@ func (r *Repository) ListDevicesByHomeID(homeID uint) ([]VisibleDevice, error) {
 	var rows []VisibleDevice
 
 	err := r.db.Table("home_devices").
-		Select("home_devices.id as id, devices.uuid, devices.device_id, devices.uid, devices.bind_type, devices.secret, devices.name, devices.first_bind_time, devices.bind_time").
+		Select("home_devices.id as id, devices.uuid, devices.mac, devices.device_id, devices.uid, devices.bind_type, devices.secret, devices.model_code, devices.current_version, devices.zone, devices.online, devices.online_ip, devices.update_time, devices.active_time, devices.name, devices.first_bind_time, devices.bind_time").
 		Joins("JOIN devices ON devices.id = home_devices.device_id").
 		Where("home_devices.home_id = ? AND home_devices.deleted_at IS NULL AND devices.deleted_at IS NULL", homeID).
 		Order("home_devices.id ASC").
@@ -183,7 +191,7 @@ func (r *Repository) FindVisibleDeviceByUUID(userID uint, uid, uuid string) (*Vi
 	var row VisibleDevice
 
 	err := r.db.Table("devices").
-		Select("devices.id as id, devices.uuid, devices.device_id, devices.uid, CASE WHEN devices.uid = ? THEN devices.bind_type WHEN device_share_members.id IS NOT NULL THEN 2 ELSE devices.bind_type END as bind_type, devices.secret, devices.name, devices.first_bind_time, devices.bind_time", uid).
+		Select("devices.id as id, devices.uuid, devices.mac, devices.device_id, devices.uid, CASE WHEN devices.uid = ? THEN devices.bind_type WHEN device_share_members.id IS NOT NULL THEN 2 ELSE devices.bind_type END as bind_type, devices.secret, devices.model_code, devices.current_version, devices.zone, devices.online, devices.online_ip, devices.update_time, devices.active_time, devices.name, devices.first_bind_time, devices.bind_time", uid).
 		Joins("LEFT JOIN home_devices ON home_devices.device_id = devices.id AND home_devices.deleted_at IS NULL").
 		Joins("LEFT JOIN home_members ON home_members.home_id = home_devices.home_id AND home_members.user_id = ? AND home_members.deleted_at IS NULL", userID).
 		Joins("LEFT JOIN device_share_members ON device_share_members.device_id = devices.id AND device_share_members.user_id = ? AND device_share_members.deleted_at IS NULL", userID).
@@ -200,6 +208,19 @@ func (r *Repository) UpdateDeviceNameByID(id uint, name string) error {
 	result := r.db.Model(&devicemodel.Device{}).
 		Where("id = ? AND deleted_at IS NULL", id).
 		Update("name", name)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *Repository) SoftDeleteDeviceByID(id uint, now time.Time) error {
+	result := r.db.Model(&devicemodel.Device{}).
+		Where("id = ? AND deleted_at IS NULL", id).
+		Update("deleted_at", now)
 	if result.Error != nil {
 		return result.Error
 	}

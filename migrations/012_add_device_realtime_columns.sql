@@ -1,0 +1,7 @@
+ALTER TABLE devices
+    ADD COLUMN mac VARCHAR(64) NULL AFTER uuid,
+    ADD COLUMN zone VARCHAR(32) NULL AFTER current_version,
+    ADD COLUMN online TINYINT NOT NULL DEFAULT 0 AFTER zone,
+    ADD COLUMN online_ip BIGINT NOT NULL DEFAULT 0 AFTER online,
+    ADD COLUMN update_time BIGINT NOT NULL DEFAULT 0 AFTER online_ip,
+    ADD COLUMN active_time BIGINT NOT NULL DEFAULT 0 AFTER update_time;

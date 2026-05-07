@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -8,9 +9,9 @@ import (
 	"time"
 
 	devicerepo "has-smartlock-service/internal/device/repository"
-	eventmodel "has-smartlock-service/internal/event/model"
 	eventrepo "has-smartlock-service/internal/event/repository"
 	homerepo "has-smartlock-service/internal/home/repository"
+	eventstore "has-smartlock-service/internal/realtime/eventstore"
 	usermodel "has-smartlock-service/internal/user/model"
 	userrepo "has-smartlock-service/internal/user/repository"
 )
@@ -68,14 +69,16 @@ type UnreadNumResult struct {
 
 type Service struct {
 	eventRepo  *eventrepo.Repository
+	eventStore eventstore.Store
 	deviceRepo *devicerepo.Repository
 	homeRepo   *homerepo.Repository
 	userRepo   *userrepo.Repository
 }
 
-func New(eventRepo *eventrepo.Repository, deviceRepo *devicerepo.Repository, homeRepo *homerepo.Repository, userRepo *userrepo.Repository) *Service {
+func New(eventRepo *eventrepo.Repository, eventStore eventstore.Store, deviceRepo *devicerepo.Repository, homeRepo *homerepo.Repository, userRepo *userrepo.Repository) *Service {
 	return &Service{
 		eventRepo:  eventRepo,
+		eventStore: eventStore,
 		deviceRepo: deviceRepo,
 		homeRepo:   homeRepo,
 		userRepo:   userRepo,
@@ -93,11 +96,19 @@ func (s *Service) List(uid string, input ListInput) (ListResult, error) {
 		return ListResult{}, err
 	}
 
-	rows, err := s.eventRepo.ListVisibleEvents(filter)
+	rows, err := s.requireStore().List(context.Background(), eventstore.Filter{
+		UID:       user.UID,
+		UUID:      filter.DeviceUUID,
+		HomeID:    homeBusinessIDToString(filter.HomeID),
+		Types:     filter.Types,
+		StartTime: filter.StartTime,
+		StartAt:   filter.StartAt,
+		EndAt:     filter.EndAt,
+		Limit:     int64(pageSize + 1),
+	})
 	if err != nil {
 		return ListResult{}, err
 	}
-
 	result := ListResult{
 		Has:  len(rows) > pageSize,
 		List: make([]EventItem, 0, min(len(rows), pageSize)),
@@ -105,25 +116,27 @@ func (s *Service) List(uid string, input ListInput) (ListResult, error) {
 	if len(rows) > pageSize {
 		rows = rows[:pageSize]
 	}
-
 	for _, row := range rows {
-		payload, err := parsePayload(row.Payload)
+		payload, err := parseMapPayload(row.Payload)
 		if err != nil {
 			return ListResult{}, err
 		}
+		isRead := 0
+		if len(row.BelongTo) > 0 {
+			isRead = row.BelongTo[0].IsRead
+		}
 		result.List = append(result.List, EventItem{
-			ID:         strconv.FormatUint(uint64(row.ID), 10),
+			ID:         row.ID,
 			UUID:       row.UUID,
 			DeviceName: row.DeviceName,
 			Type:       row.Type,
-			IsRead:     row.IsRead,
+			IsRead:     isRead,
 			Time:       row.Time,
 			DeviceTime: row.DeviceTime,
 			Thumbnail:  row.Thumbnail,
 			Payload:    payload,
 		})
 	}
-
 	return result, nil
 }
 
@@ -141,16 +154,10 @@ func (s *Service) UnreadNum(uid, uuid string) (UnreadNumResult, error) {
 		return UnreadNumResult{}, err
 	}
 
-	count, err := s.eventRepo.CountUnreadVisibleEvents(eventrepo.EventListFilter{
-		UserID:     user.ID,
-		UID:        user.UID,
-		DeviceUUID: deviceUUID,
-		Limit:      1,
-	})
+	count, err := s.requireStore().CountUnread(context.Background(), user.UID, deviceUUID)
 	if err != nil {
 		return UnreadNumResult{}, err
 	}
-
 	return UnreadNumResult{Number: count}, nil
 }
 
@@ -175,16 +182,14 @@ func (s *Service) ExistDay(uid string, input ExistDayInput) (map[string]int, err
 	filter.StartAt = &startAt
 	filter.EndAt = &endAt
 
-	rows, err := s.eventRepo.CountVisibleEventDays(filter)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[string]int, len(rows))
-	for _, row := range rows {
-		result[row.Day] = int(row.Count)
-	}
-	return result, nil
+	return s.requireStore().CountDays(context.Background(), eventstore.Filter{
+		UID:     user.UID,
+		UUID:    filter.DeviceUUID,
+		HomeID:  homeBusinessIDToString(filter.HomeID),
+		StartAt: filter.StartAt,
+		EndAt:   filter.EndAt,
+		Types:   filter.Types,
+	})
 }
 
 func (s *Service) Read(uid, msgID, uuid string) error {
@@ -193,22 +198,23 @@ func (s *Service) Read(uid, msgID, uuid string) error {
 		return err
 	}
 
-	event, _, state, err := s.findMutableVisibleEvent(user, msgID, uuid)
-	if err != nil {
+	if strings.TrimSpace(msgID) == "" || strings.TrimSpace(uuid) == "" {
+		return ErrInvalidInput
+	}
+	if err := s.ensureVisibleDevice(user, strings.TrimSpace(uuid)); err != nil {
+		if errors.Is(err, ErrDeviceForbidden) {
+			return ErrEventForbidden
+		}
 		return err
 	}
-
-	if state == nil {
-		return s.eventRepo.CreateEventUserState(&eventmodel.DeviceEventUserState{
-			EventID: event.ID,
-			UserID:  user.ID,
-			IsRead:  1,
-		})
+	event, err := s.requireStore().GetVisible(context.Background(), user.UID, strings.TrimSpace(msgID))
+	if err != nil {
+		return ErrEventNotFound
 	}
-
-	return s.eventRepo.UpdateEventUserStateByID(state.ID, map[string]any{
-		"is_read": 1,
-	})
+	if event.UUID != strings.TrimSpace(uuid) {
+		return ErrEventNotFound
+	}
+	return s.requireStore().MarkRead(context.Background(), user.UID, strings.TrimSpace(msgID))
 }
 
 func (s *Service) Delete(uid, msgID, uuid string) error {
@@ -217,25 +223,23 @@ func (s *Service) Delete(uid, msgID, uuid string) error {
 		return err
 	}
 
-	event, _, state, err := s.findMutableVisibleEvent(user, msgID, uuid)
-	if err != nil {
+	if strings.TrimSpace(msgID) == "" || strings.TrimSpace(uuid) == "" {
+		return ErrInvalidInput
+	}
+	if err := s.ensureVisibleDevice(user, strings.TrimSpace(uuid)); err != nil {
+		if errors.Is(err, ErrDeviceForbidden) {
+			return ErrEventForbidden
+		}
 		return err
 	}
-
-	now := time.Now()
-	if state == nil {
-		return s.eventRepo.CreateEventUserState(&eventmodel.DeviceEventUserState{
-			EventID:   event.ID,
-			UserID:    user.ID,
-			IsRead:    1,
-			DeletedAt: &now,
-		})
+	event, err := s.requireStore().GetVisible(context.Background(), user.UID, strings.TrimSpace(msgID))
+	if err != nil {
+		return ErrEventNotFound
 	}
-
-	return s.eventRepo.UpdateEventUserStateByID(state.ID, map[string]any{
-		"is_read":    1,
-		"deleted_at": &now,
-	})
+	if event.UUID != strings.TrimSpace(uuid) {
+		return ErrEventNotFound
+	}
+	return s.requireStore().SoftDelete(context.Background(), user.UID, strings.TrimSpace(msgID))
 }
 
 func (s *Service) buildListFilter(user *usermodel.User, input ListInput, limit int) (eventrepo.EventListFilter, error) {
@@ -337,50 +341,6 @@ func (s *Service) ensureVisibleDevice(user *usermodel.User, uuid string) error {
 	return nil
 }
 
-func (s *Service) findMutableVisibleEvent(user *usermodel.User, msgID, uuid string) (*eventmodel.DeviceEvent, *eventrepo.EventView, *eventmodel.DeviceEventUserState, error) {
-	eventID, err := parseMessageID(msgID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	deviceUUID := strings.TrimSpace(uuid)
-	if deviceUUID == "" {
-		return nil, nil, nil, ErrInvalidInput
-	}
-
-	event, err := s.eventRepo.FindEventByID(eventID)
-	if err != nil {
-		if eventrepo.IsNotFound(err) {
-			return nil, nil, nil, ErrEventNotFound
-		}
-		return nil, nil, nil, err
-	}
-
-	state, stateErr := s.eventRepo.FindEventUserStateByEventIDAndUserID(event.ID, user.ID)
-	if stateErr != nil && !eventrepo.IsNotFound(stateErr) {
-		return nil, nil, nil, stateErr
-	}
-	if stateErr != nil && eventrepo.IsNotFound(stateErr) {
-		state = nil
-	}
-
-	view, err := s.eventRepo.FindVisibleEventByID(user.ID, user.UID, event.ID)
-	if err != nil {
-		if eventrepo.IsNotFound(err) {
-			if state != nil && state.DeletedAt != nil {
-				return nil, nil, nil, ErrEventNotFound
-			}
-			return nil, nil, nil, ErrEventForbidden
-		}
-		return nil, nil, nil, err
-	}
-	if view.UUID != deviceUUID {
-		return nil, nil, nil, ErrEventNotFound
-	}
-
-	return event, view, state, nil
-}
-
 func (s *Service) mustFindUser(uid string) (*usermodel.User, error) {
 	if strings.TrimSpace(uid) == "" {
 		return nil, ErrInvalidInput
@@ -444,15 +404,24 @@ func parsePayload(raw string) (*ListPayload, error) {
 	return &payload, nil
 }
 
-func parseMessageID(msgID string) (uint, error) {
-	value := strings.TrimSpace(msgID)
-	if value == "" {
-		return 0, ErrInvalidInput
+func parseMapPayload(raw map[string]any) (*ListPayload, error) {
+	if len(raw) == 0 {
+		return nil, nil
 	}
-
-	id, err := strconv.ParseUint(value, 10, 64)
+	body, err := json.Marshal(raw)
 	if err != nil {
-		return 0, ErrInvalidInput
+		return nil, err
 	}
-	return uint(id), nil
+	return parsePayload(string(body))
+}
+
+func homeBusinessIDToString(homeID *uint) string {
+	if homeID == nil {
+		return ""
+	}
+	return strconv.FormatUint(uint64(*homeID), 10)
+}
+
+func (s *Service) requireStore() eventstore.Store {
+	return s.eventStore
 }

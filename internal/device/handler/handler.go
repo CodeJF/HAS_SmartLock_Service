@@ -47,6 +47,11 @@ type shareDeleteRequest struct {
 	UUID string `form:"uuid"`
 }
 
+type removeRequest struct {
+	UUID      string `form:"uuid"`
+	CleanData bool   `form:"clean_data"`
+}
+
 func New(service *service.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -64,6 +69,7 @@ func RegisterDeviceRoutes(group *gin.RouterGroup, handler *Handler, userProtocol
 	deviceGroup.GET("/models", handler.Models)
 	deviceGroup.POST("/upName", handler.UpdateName)
 	deviceGroup.GET("/upgradedVersion", handler.UpgradedVersion)
+	deviceGroup.DELETE("/remove", handler.Remove)
 	deviceGroup.POST("/share", handler.Share)
 	deviceGroup.GET("/shareRecords", handler.ShareRecords)
 	deviceGroup.DELETE("/shareDelete", handler.ShareDelete)
@@ -163,6 +169,22 @@ func (h *Handler) UpgradedVersion(c *gin.Context) {
 		return
 	}
 	httpx.Success(c, result)
+}
+
+func (h *Handler) Remove(c *gin.Context) {
+	var req removeRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		httpx.Fail(c, 2000, "invalid query", nil)
+		return
+	}
+	if err := h.service.Remove(auth.UIDFromContext(c), service.DeviceRemoveInput{
+		UUID:      req.UUID,
+		CleanData: req.CleanData,
+	}); err != nil {
+		renderServiceError(c, err)
+		return
+	}
+	httpx.Success(c, nil)
 }
 
 func (h *Handler) Share(c *gin.Context) {

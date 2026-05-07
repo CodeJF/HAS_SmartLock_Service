@@ -13,6 +13,10 @@ func TestLoadUsesFallbackWithoutDotEnv(t *testing.T) {
 		"APP_NAME",
 		"APP_ENV",
 		"HTTP_ADDR",
+		"WS_PATH",
+		"PUBLIC_API_URL",
+		"PUBLIC_MQTT_URL",
+		"PUBLIC_WEBSOCKET_URL",
 		"DB_DSN",
 		"MYSQL_DSN",
 		"JWT_SECRET",
@@ -30,6 +34,20 @@ func TestLoadUsesFallbackWithoutDotEnv(t *testing.T) {
 		"OSS_STS_ROLE_ARN",
 		"OSS_STS_SESSION_PREFIX",
 		"OSS_STS_DURATION_SECONDS",
+		"MQTT_HOST",
+		"MQTT_PORT",
+		"MQTT_USERNAME",
+		"MQTT_PASSWORD",
+		"MQTT_CLIENT_ID",
+		"MQTT_KEEPALIVE_SECONDS",
+		"MQTT_PING_TIMEOUT_SECONDS",
+		"MQTT_CLEAN_SESSION",
+		"MQTT_AUTO_RECONNECT",
+		"REDIS_ADDR",
+		"REDIS_PASSWORD",
+		"REDIS_DB",
+		"MONGO_URI",
+		"MONGO_DATABASE",
 	)
 
 	inTempDirWithoutRepoRoot(t)
@@ -40,6 +58,9 @@ func TestLoadUsesFallbackWithoutDotEnv(t *testing.T) {
 	}
 	if cfg.HTTPAddr != ":8080" {
 		t.Fatalf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)
+	}
+	if cfg.WsPath != "/ws" {
+		t.Fatalf("WsPath = %q, want /ws", cfg.WsPath)
 	}
 	if cfg.OSSAvatarPrefix != "avatar" {
 		t.Fatalf("OSSAvatarPrefix = %q, want avatar", cfg.OSSAvatarPrefix)
@@ -132,6 +153,10 @@ func TestEnvExampleContainsCurrentConfigKeys(t *testing.T) {
 		"APP_NAME=",
 		"APP_ENV=",
 		"HTTP_ADDR=",
+		"WS_PATH=",
+		"PUBLIC_API_URL=",
+		"PUBLIC_MQTT_URL=",
+		"PUBLIC_WEBSOCKET_URL=",
 		"DB_DSN=",
 		"MYSQL_DSN=",
 		"JWT_SECRET=",
@@ -149,6 +174,20 @@ func TestEnvExampleContainsCurrentConfigKeys(t *testing.T) {
 		"OSS_STS_ROLE_ARN=",
 		"OSS_STS_SESSION_PREFIX=",
 		"OSS_STS_DURATION_SECONDS=",
+		"MQTT_HOST=",
+		"MQTT_PORT=",
+		"MQTT_USERNAME=",
+		"MQTT_PASSWORD=",
+		"MQTT_CLIENT_ID=",
+		"MQTT_KEEPALIVE_SECONDS=",
+		"MQTT_PING_TIMEOUT_SECONDS=",
+		"MQTT_CLEAN_SESSION=",
+		"MQTT_AUTO_RECONNECT=",
+		"REDIS_ADDR=",
+		"REDIS_PASSWORD=",
+		"REDIS_DB=",
+		"MONGO_URI=",
+		"MONGO_DATABASE=",
 	}
 
 	for _, key := range requiredKeys {

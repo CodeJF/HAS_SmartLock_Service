@@ -83,7 +83,7 @@ func (h *Handler) Bind(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Bind(service.BindInput{
+	resp, err := h.service.Bind(service.BindInput{
 		Model:   c.GetHeader("model"),
 		UUID:    c.GetHeader("uuid"),
 		AppID:   c.GetHeader("appid"),
@@ -91,11 +91,12 @@ func (h *Handler) Bind(c *gin.Context) {
 		MAC:     req.MAC,
 		Zone:    req.Zone,
 		Version: req.Version,
-	}); err != nil {
+	})
+	if err != nil {
 		renderServiceError(c, err)
 		return
 	}
-	httpx.Success(c, nil)
+	httpx.Success(c, resp)
 }
 
 func (h *Handler) Login(c *gin.Context) {
@@ -105,17 +106,18 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeviceLogin(service.DeviceLoginInput{
+	resp, err := h.service.DeviceLogin(service.DeviceLoginInput{
 		Model:   c.GetHeader("model"),
 		UUID:    c.GetHeader("uuid"),
 		UID:     c.GetHeader("uid"),
 		Zone:    req.Zone,
 		Version: req.Version,
-	}); err != nil {
+	})
+	if err != nil {
 		renderServiceError(c, err)
 		return
 	}
-	httpx.Success(c, nil)
+	httpx.Success(c, resp)
 }
 
 func (h *Handler) List(c *gin.Context) {

@@ -108,6 +108,12 @@ type newDeviceResponse struct {
 	DeleteTime    int64  `json:"delete_time"`
 }
 
+type deviceCredentialResponse struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Secret   string `json:"secret"`
+}
+
 type shareRecordResponse struct {
 	Username string `json:"username"`
 	UUID     string `json:"uuid"`
@@ -1300,6 +1306,19 @@ func TestDeviceBindAndLoginFlow(t *testing.T) {
 	if bindResp.Code != 1000 {
 		t.Fatalf("device bind code = %d, want 1000", bindResp.Code)
 	}
+	var bindData deviceCredentialResponse
+	if err := json.Unmarshal(bindResp.Data, &bindData); err != nil {
+		t.Fatalf("unmarshal device bind response: %v", err)
+	}
+	if bindData.Username != "bind-uuid-1" {
+		t.Fatalf("device bind username = %q, want bind-uuid-1", bindData.Username)
+	}
+	if bindData.Password == "" {
+		t.Fatal("device bind password is empty")
+	}
+	if bindData.Secret == "" {
+		t.Fatal("device bind secret is empty")
+	}
 
 	loginResp := performDeviceJSONRequest(t, application.router, http.MethodPost, "/v1/device/login", map[string]any{
 		"zone":    "8.00",
@@ -1307,6 +1326,22 @@ func TestDeviceBindAndLoginFlow(t *testing.T) {
 	}, requestOptions{HeaderOverrides: map[string]string{"uuid": "bind-uuid-1", "uid": registered.UID}})
 	if loginResp.Code != 1000 {
 		t.Fatalf("device login code = %d, want 1000", loginResp.Code)
+	}
+	var loginData deviceCredentialResponse
+	if err := json.Unmarshal(loginResp.Data, &loginData); err != nil {
+		t.Fatalf("unmarshal device login response: %v", err)
+	}
+	if loginData.Username != "bind-uuid-1" {
+		t.Fatalf("device login username = %q, want bind-uuid-1", loginData.Username)
+	}
+	if loginData.Password == "" {
+		t.Fatal("device login password is empty")
+	}
+	if loginData.Secret != bindData.Secret {
+		t.Fatalf("device login secret = %q, want %q", loginData.Secret, bindData.Secret)
+	}
+	if loginData.Password == bindData.Password {
+		t.Fatal("device login password should refresh and differ from bind password")
 	}
 
 	newListResp := performJSONRequest(t, application.router, http.MethodGet, "/v1/device/newList", nil, "Bearer "+registered.AccessToken)
@@ -3324,7 +3359,11 @@ func performDeviceJSONRequest(t *testing.T, router http.Handler, method, path st
 		}
 		req.Header.Set("uid", uid)
 	}
-	sign := protocol.BuildDeviceSignature(method, model, requestID, strconv.FormatInt(timestamp, 10), uuid, params, "device-model-secret")
+	uid := ""
+	if !strings.Contains(path, "/bind") {
+		uid = req.Header.Get("uid")
+	}
+	sign := protocol.BuildDeviceSignature(method, model, requestID, strconv.FormatInt(timestamp, 10), uid, uuid, params, "device-model-secret")
 	req.Header.Set("sign", sign)
 
 	for key, value := range options.HeaderOverrides {

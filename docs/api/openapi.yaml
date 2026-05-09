@@ -258,6 +258,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data: null
   /v1/user/resetSend:
     post:
       tags:
@@ -289,6 +293,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NullEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data: null
   /v1/user/reset:
     post:
       tags:
@@ -634,6 +642,9 @@ paths:
       description: |
         设备端专属签名接口。
         sign 使用 model_secret 计算，不使用用户端 secret_key 规则。
+        计算方式为先做 HMAC-SHA256，再转十六进制字符串，最后对该字符串做 Base64。
+        头串为 model + request_id + timestamp + uuid。
+        参数串按旧项目客户端脚本兼容规则生成：Body 顶层字段排序后原值拼接，Query value 先做 encodeURIComponent。
       parameters:
         - $ref: '#/components/parameters/DeviceModelHeader'
         - $ref: '#/components/parameters/DeviceUUIDHeader'
@@ -658,7 +669,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/NullEnvelope'
+                $ref: '#/components/schemas/DeviceCredentialEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  username: '{{uuid}}'
+                  password: '{{mqtt_password}}'
+                  secret: '{{device_secret}}'
   /v1/device/login:
     post:
       tags:
@@ -668,6 +686,9 @@ paths:
       description: |
         设备端专属签名接口。
         sign 使用 model_secret 计算，不使用用户端 secret_key 规则。
+        计算方式为先做 HMAC-SHA256，再转十六进制字符串，最后对该字符串做 Base64。
+        头串为 model + request_id + timestamp + uid + uuid。
+        参数串按旧项目客户端脚本兼容规则生成：Body 顶层字段排序后原值拼接，Query value 先做 encodeURIComponent。
       parameters:
         - $ref: '#/components/parameters/DeviceModelHeader'
         - $ref: '#/components/parameters/DeviceUUIDHeader'
@@ -690,7 +711,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/NullEnvelope'
+                $ref: '#/components/schemas/DeviceCredentialEnvelope'
+              example:
+                code: 1000
+                msg: ok
+                data:
+                  username: '{{uuid}}'
+                  password: '{{mqtt_password}}'
+                  secret: '{{device_secret}}'
   /v1/device/list:
     get:
       tags:
@@ -2271,6 +2299,26 @@ components:
           type: string
         version:
           type: string
+    DeviceCredentialData:
+      type: object
+      required:
+        - username
+        - password
+        - secret
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        secret:
+          type: string
+    DeviceCredentialEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DeviceCredentialData'
     TokenData:
       type: object
       required:

@@ -122,6 +122,7 @@ func DeviceMiddleware(modelSecrets map[string]string, skewSeconds int) (gin.Hand
 			headers.Model,
 			headers.RequestID,
 			headers.Timestamp,
+			headers.UID,
 			headers.UUID,
 			params,
 			secret,

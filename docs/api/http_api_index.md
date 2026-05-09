@@ -309,8 +309,16 @@ baseString = HTTP_METHOD + "&" +
 > **[❗] 设备端专属 API 注意事项**：
 > 下方 `设备绑定` 与 `设备登录` 也是由设备端通过 HTTP 调用后端的接口，但它们的鉴权头与签名规则与用户端不同。使用 `model_secret` 而不是用户的 `secret_key`。
 > **设备端签名算法**:
-> `baseString = METHOD + "&" + model + request_id + timestamp + uuid + "&" + canonicalQueryOrBodyParams`
-> `sign = Base64(HmacSHA256(baseString, model_secret))`
+> `baseString = METHOD + "&" + headerString + "&" + canonicalQueryOrBodyParams`
+> `sign = Base64(hex(HmacSHA256(baseString, model_secret)))`
+>
+> 其中 `headerString` 兼容旧项目设备端中间件：
+> - 未绑定用户场景：`model + request_id + timestamp + uuid`
+> - 已绑定用户场景（如设备登录，需带 `uid` Header）：`model + request_id + timestamp + uid + uuid`
+>
+> `canonicalQueryOrBodyParams` 兼容旧项目客户端脚本：
+> - Body 请求：JSON 顶层字段按 Key 升序拼接 `key=value`，空字符串也参与签名
+> - Query 请求：参数按 Key 升序拼接，Value 先按 `encodeURIComponent` 再参与签名
 
 ### 16.1 设备绑定 (仅限设备端调用)
 - **Method**: `POST`
@@ -318,6 +326,7 @@ baseString = HTTP_METHOD + "&" +
 - **Auth**: 设备专属认证
 - **参数方式**: Body (JSON)
 - **请求头强制验证项**: `model`, `uuid`, `appid`, `timestamp`, `request_id`, `sign`
+- **签名头串**: `model + request_id + timestamp + uuid`
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
@@ -325,7 +334,12 @@ baseString = HTTP_METHOD + "&" +
   | `mac` | `string` | ✅ | MAC 地址 |
   | `zone` | `string` | ✅ | 时区 (如 `"8.00"`) |
   | `version` | `string` | ✅ | 固件版本号 |
-- **返回值**: `null` (返回标准通用基础响应, 下同)
+- **返回值** (`data`):
+  | 字段 | 类型 | 说明 |
+  |------|------|------|
+  | `username` | `string` | MQTT 用户名，固定为设备 `uuid` |
+  | `password` | `string` | 本次下发的 MQTT 密码 |
+  | `secret` | `string` | 设备业务密钥，供设备后续业务链路使用 |
 
 ---
 
@@ -335,12 +349,18 @@ baseString = HTTP_METHOD + "&" +
 - **Auth**: 设备专属认证
 - **参数方式**: Body (JSON)
 - **请求头强制验证项**: `model`, `uuid`, `uid`, `timestamp`, `request_id`, `sign`
+- **签名头串**: `model + request_id + timestamp + uid + uuid`
 - **请求参数**:
   | 字段 | 类型 | 必填 | 说明 |
   |------|------|------|------|
   | `zone` | `string` | ✅ | 时区 (如 `"8.00"`) |
   | `version` | `string` | ✅ | 固件版本号（如 `"SL100_BP_1.01.10"`） |
-- **返回值**: `null`
+- **返回值** (`data`):
+  | 字段 | 类型 | 说明 |
+  |------|------|------|
+  | `username` | `string` | MQTT 用户名，固定为设备 `uuid` |
+  | `password` | `string` | 本次登录重新刷新后的 MQTT 密码 |
+  | `secret` | `string` | 设备业务密钥，保持设备绑定时的密钥语义 |
 
 ---
 

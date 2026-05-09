@@ -89,6 +89,12 @@ type DeviceUpgradeResult struct {
 	Version *DeviceUpgradeVersion `json:"version"`
 }
 
+type DeviceCredential struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Secret   string `json:"secret"`
+}
+
 type BindInput struct {
 	Model   string
 	UUID    string
@@ -194,7 +200,7 @@ func (s *Service) WithRealtimeNotifier(notifier RealtimeNotifier) *Service {
 	return s
 }
 
-func (s *Service) Bind(input BindInput) error {
+func (s *Service) Bind(input BindInput) (*DeviceCredential, error) {
 	if strings.TrimSpace(input.Model) == "" ||
 		strings.TrimSpace(input.UUID) == "" ||
 		strings.TrimSpace(input.AppID) == "" ||
@@ -202,28 +208,30 @@ func (s *Service) Bind(input BindInput) error {
 		strings.TrimSpace(input.MAC) == "" ||
 		strings.TrimSpace(input.Zone) == "" ||
 		strings.TrimSpace(input.Version) == "" {
-		return ErrInvalidInput
+		return nil, ErrInvalidInput
 	}
 
 	if _, err := s.mustFindUser(strings.TrimSpace(input.UID)); err != nil {
-		return err
+		return nil, err
 	}
 
 	now := time.Now().Unix()
 	password := redisx.RandString(16)
+	deviceSecret := ""
 	device, err := s.deviceRepo.FindDeviceByUUID(strings.TrimSpace(input.UUID))
 	if err != nil {
 		if !devicerepo.IsNotFound(err) {
-			return err
+			return nil, err
 		}
 
+		deviceSecret = password
 		if err := s.deviceRepo.CreateDevice(&devicemodel.Device{
 			UUID:           strings.TrimSpace(input.UUID),
 			MAC:            strings.TrimSpace(input.MAC),
 			DeviceID:       strings.TrimSpace(input.UUID),
 			UID:            strings.TrimSpace(input.UID),
 			BindType:       1,
-			Secret:         password,
+			Secret:         deviceSecret,
 			ModelCode:      strings.TrimSpace(input.Model),
 			CurrentVersion: strings.TrimSpace(input.Version),
 			Zone:           strings.TrimSpace(input.Zone),
@@ -234,9 +242,10 @@ func (s *Service) Bind(input BindInput) error {
 			FirstBindTime:  now,
 			BindTime:       now,
 		}); err != nil {
-			return err
+			return nil, err
 		}
 	} else {
+		deviceSecret = strings.TrimSpace(device.Secret)
 		attrs := map[string]any{
 			"uid":             strings.TrimSpace(input.UID),
 			"bind_type":       1,
@@ -250,72 +259,94 @@ func (s *Service) Bind(input BindInput) error {
 		if strings.TrimSpace(device.DeviceID) == "" {
 			attrs["device_id"] = strings.TrimSpace(input.UUID)
 		}
-		if strings.TrimSpace(device.Secret) == "" {
-			attrs["secret"] = password
-		} else {
-			password = device.Secret
+		if deviceSecret == "" {
+			deviceSecret = password
+			attrs["secret"] = deviceSecret
 		}
 		if strings.TrimSpace(device.Name) == "" {
 			attrs["name"] = strings.TrimSpace(input.Model)
 		}
 		if err := s.deviceRepo.UpdateDeviceByID(device.ID, attrs); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	ctx := context.Background()
 	if s.redisClient != nil {
 		if err := s.redisClient.SetMQTTCredentials(ctx, strings.TrimSpace(input.UUID), password, false); err != nil {
-			return err
+			return nil, err
 		}
 		if err := s.redisClient.SetMQTTACL(ctx, strings.TrimSpace(input.UUID), redisx.BuildDeviceACL(strings.TrimSpace(input.Model), strings.TrimSpace(input.UUID))); err != nil {
-			return err
+			return nil, err
 		}
 		if err := s.redisClient.SetDeviceBinding(ctx, strings.TrimSpace(input.UUID), strings.TrimSpace(input.UID), 1); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if s.shadowStore != nil {
 		if err := s.shadowStore.EnsureDevice(ctx, strings.TrimSpace(input.UUID), strings.TrimSpace(input.UID)); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if s.realtime != nil {
 		s.realtime.NotifyDeviceBind(ctx, strings.TrimSpace(input.UID), strings.TrimSpace(input.UUID))
 	}
-	return nil
+	return &DeviceCredential{
+		Username: strings.TrimSpace(input.UUID),
+		Password: password,
+		Secret:   deviceSecret,
+	}, nil
 }
 
-func (s *Service) DeviceLogin(input DeviceLoginInput) error {
+func (s *Service) DeviceLogin(input DeviceLoginInput) (*DeviceCredential, error) {
 	if strings.TrimSpace(input.Model) == "" ||
 		strings.TrimSpace(input.UUID) == "" ||
 		strings.TrimSpace(input.UID) == "" ||
 		strings.TrimSpace(input.Zone) == "" ||
 		strings.TrimSpace(input.Version) == "" {
-		return ErrInvalidInput
+		return nil, ErrInvalidInput
 	}
 
 	if _, err := s.mustFindUser(strings.TrimSpace(input.UID)); err != nil {
-		return err
+		return nil, err
 	}
 
 	device, err := s.deviceRepo.FindDeviceByUUID(strings.TrimSpace(input.UUID))
 	if err != nil {
 		if devicerepo.IsNotFound(err) {
-			return ErrDeviceNotFound
+			return nil, ErrDeviceNotFound
 		}
-		return err
+		return nil, err
 	}
 	if device.UID != strings.TrimSpace(input.UID) {
-		return ErrDeviceForbidden
+		return nil, ErrDeviceForbidden
 	}
 
-	return s.deviceRepo.UpdateDeviceByID(device.ID, map[string]any{
+	if err := s.deviceRepo.UpdateDeviceByID(device.ID, map[string]any{
 		"model_code":      strings.TrimSpace(input.Model),
 		"current_version": strings.TrimSpace(input.Version),
 		"zone":            strings.TrimSpace(input.Zone),
 		"active_time":     time.Now().Unix(),
-	})
+	}); err != nil {
+		return nil, err
+	}
+
+	password := redisx.RandString(16)
+	ctx := context.Background()
+	if s.redisClient != nil {
+		if err := s.redisClient.SetMQTTCredentials(ctx, strings.TrimSpace(input.UUID), password, false); err != nil {
+			return nil, err
+		}
+		if err := s.redisClient.SetMQTTACL(ctx, strings.TrimSpace(input.UUID), redisx.BuildDeviceACL(strings.TrimSpace(input.Model), strings.TrimSpace(input.UUID))); err != nil {
+			return nil, err
+		}
+	}
+
+	return &DeviceCredential{
+		Username: strings.TrimSpace(input.UUID),
+		Password: password,
+		Secret:   strings.TrimSpace(device.Secret),
+	}, nil
 }
 
 func (s *Service) List(uid, homeID string) ([]DeviceItem, error) {
